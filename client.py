@@ -9,14 +9,17 @@ PRESIGN_URL = os.getenv(
 )
 UPLOAD_URL = os.getenv("UPLOAD_URL", "https://ent.fedgpt.cc/asset/")
 
-MODEL_ID = os.getenv("MODEL_ID", "tts-general-0.0.1")
+MODEL_ID = os.getenv("MODEL_ID", "tts-general-1.2.2")
 
-def send_zero_shot_request(text: str,  prompt_voice_text: str,prompt_voice_asset_key: str, prompt_voice_url: str) -> bytes:
+def send_zero_shot_request(text: str,  prompt_voice_text: str,prompt_voice_asset_key: str, prompt_voice_url: str, language: str = None) -> bytes:
     headers = {
         "X-API-Key":    API_KEY,
         "Content-Type": "application/json"
     }
-    
+
+    if language is not None:
+        text = f"<|{language}|>{text}"
+
     payload = {
         "input": {
             "text": text,
@@ -59,7 +62,7 @@ def presign(content_type: str) -> tuple[str, dict[str, str]]:
 
     if presign_response.status_code != 200:
         raise Exception(f"Presign request failed with status code {presign_response.status_code}: {presign_response.text}")
-    
+
 
     asset_key = presign_response.json().get("assetKey", "")
     form_data = presign_response.json().get("formData", {})

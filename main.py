@@ -2,17 +2,12 @@
 
 import os
 import subprocess
-from typing import Tuple 
+from typing import Tuple
 from client import send_zero_shot_request, upload_prompt_voice
 from preprocessing import preprocess_text, split_sentences, generate_utt_id
 
-
 SAMPLING_RATE = 24000  # From client.py
 
-OUTPUT_DIR = "output"
-OUTPUT_WAV = "output.wav"
-PROMPT_VOICE_PATH = "<YOUR_PROMPT_VOICE_PATH>"  # Path to your prompt voice file
-BASENAME = "<basename>"
 
 def generate_audio(
     utt_id: str,
@@ -21,6 +16,7 @@ def generate_audio(
     prompt_voice_text: str,
     prompt_voice_asset_key: str,
     prompt_voice_url: str ="",
+    language: str = None,
 ) -> Tuple[str, str, str, bool, str]:
     """
     Generate audio for a single sentence using the specified TTS mode.
@@ -48,6 +44,7 @@ def generate_audio(
             prompt_voice_text=prompt_voice_text,
             prompt_voice_asset_key=prompt_voice_asset_key,
             prompt_voice_url=prompt_voice_url,
+            language=language,
         )
 
         # Save to WAV file
@@ -80,16 +77,14 @@ def concat_wavs_ffmpeg(output_path: str, audio_paths: list[str]):
     ], check=True)
 
 
-def main() -> None:
+def main(args) -> None:
 
-    input_text = "色即是空，空即是色。受想行識，亦復如是。"
-
-    print(f"[INFO] Input text: {input_text}")
-    print(f"[INFO] Utterance ID basename: {BASENAME}")
+    print(f"[INFO] Input text: {args.input_text}")
+    print(f"[INFO] Utterance ID basename: {args.audio_basename}")
 
     # Step 1: Preprocess text
     print("\n[STEP 1] Preprocessing text...")
-    text = preprocess_text(input_text)
+    text = preprocess_text(args.input_text)
 
     # Step 2: Split into sentences
     print("[STEP 2] Splitting into sentences...")
@@ -100,16 +95,16 @@ def main() -> None:
     print("\n[STEP 3] Generating audio...")
     utterances: list[tuple[str, str, str, bool, str]] = []
 
-    asset_key = upload_prompt_voice(file_path=PROMPT_VOICE_PATH)
+    asset_key = upload_prompt_voice(file_path=args.prompt_voice_path)
     print(f"[INFO] Uploaded prompt voice, asset key: {asset_key}")
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(args.output_dir, exist_ok=True)
 
     for idx, sentence in enumerate(sentences):
-        utt_id = generate_utt_id(BASENAME, idx)
-        output_path = os.path.join(OUTPUT_DIR, f"{utt_id}.wav")
+        utt_id = generate_utt_id(args.audio_basename, idx)
+        output_path = os.path.join(args.output_dir, f"{utt_id}.wav")
 
-        result = generate_audio(utt_id, output_path, sentence, prompt_voice_text="I think I'm actually a very nice person.", prompt_voice_asset_key=asset_key)
+        result = generate_audio(utt_id, output_path, sentence, prompt_voice_text=args.prompt_voice_text, prompt_voice_asset_key=asset_key, language=args.language)
         utterances.append(result)
 
 
@@ -125,8 +120,8 @@ def main() -> None:
     audio_paths = [path for _, _, path, succ, _ in utterances if succ]
 
     if audio_paths:
-        concat_wavs_ffmpeg(OUTPUT_WAV, audio_paths)
-        print(f"[OK] Concatenated audio saved: {OUTPUT_WAV}")
+        concat_wavs_ffmpeg(args.output_wav, audio_paths)
+        print(f"[OK] Concatenated audio saved: {args.output_wav}")
     else:
         print("[WARNING] No audio files to concatenate")
 
@@ -135,4 +130,15 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input-text", type=str)
+    parser.add_argument("--prompt-voice-text", type=str)
+    parser.add_argument("--prompt-voice-path", type=str)
+    parser.add_argument("--audio-basename", type=str)
+    parser.add_argument("--output-dir", type=str)
+    parser.add_argument("--output-wav", type=str)
+    parser.add_argument("--language", type=str)
+    args = parser.parse_args()
+
+    main(args)
