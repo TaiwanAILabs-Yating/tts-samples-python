@@ -10,11 +10,32 @@ from preprocessing import preprocess_text, split_sentences, generate_utt_id, SEG
 
 
 def get_wav_duration(wav_bytes: bytes) -> float:
-    """Calculate duration of WAV audio from bytes."""
+    """
+    Calculate duration of WAV audio from bytes.
+
+    Handles streaming WAV files where the header may contain placeholder
+    values (0xFFFFFFFF) for data size.
+    """
+    # Find 'data' chunk marker to locate where audio data starts
+    data_pos = wav_bytes.find(b'data')
+    if data_pos == -1:
+        raise ValueError("Invalid WAV file: no data chunk found")
+
+    # Get format info from wave module (sample rate, channels, sample width)
     with wave.open(io.BytesIO(wav_bytes), 'rb') as wav_file:
-        frames = wav_file.getnframes()
-        rate = wav_file.getframerate()
-        return frames / rate
+        sample_rate = wav_file.getframerate()
+        n_channels = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()  # bytes per sample
+
+    # Data starts at data_pos + 8 (4 bytes 'data' + 4 bytes size field)
+    data_start = data_pos + 8
+    actual_data_size = len(wav_bytes) - data_start
+
+    # Calculate duration from actual data size
+    bytes_per_frame = n_channels * sample_width
+    actual_frames = actual_data_size // bytes_per_frame
+
+    return actual_frames / sample_rate
 
 
 def generate_audio(
