@@ -2,11 +2,19 @@
 
 import os
 import subprocess
+import wave
+import io
 from typing import Tuple
 from client import send_zero_shot_request, upload_prompt_voice
 from preprocessing import preprocess_text, split_sentences, generate_utt_id, SEGMENT_MODE_SENTENCE, SEGMENT_MODE_CLAUSE
 
-SAMPLING_RATE = 24000  # From client.py
+
+def get_wav_duration(wav_bytes: bytes) -> float:
+    """Calculate duration of WAV audio from bytes."""
+    with wave.open(io.BytesIO(wav_bytes), 'rb') as wav_file:
+        frames = wav_file.getnframes()
+        rate = wav_file.getframerate()
+        return frames / rate
 
 
 def generate_audio(
@@ -55,9 +63,9 @@ def generate_audio(
         # Save to WAV file
         with open(output_path, 'wb') as f:
             f.write(tts_speech)
-            f.close()
 
-        print(f"[OK] {utt_id}: Generated {len(tts_speech)/SAMPLING_RATE:.2f}s")
+        duration = get_wav_duration(tts_speech)
+        print(f"[OK] {utt_id}: Generated {duration:.2f}s")
         return (utt_id, sentence, output_path, True, "generated")
 
     except Exception as e:
