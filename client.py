@@ -1,5 +1,7 @@
 import requests
 import os
+import subprocess
+import tempfile
 from urllib.parse import urlparse
 
 # Environment: dev, stg2, prod
@@ -79,7 +81,18 @@ def clear_token_cache():
     global _cached_token
     _cached_token = None
 
-def send_zero_shot_request(text: str,  prompt_voice_text: str,prompt_voice_asset_key: str, prompt_voice_url: str, language: str = None) -> bytes:
+END_SILENCE_TOKEN = "<|sil_200ms|>"
+
+
+def send_zero_shot_request(
+    text: str,
+    prompt_voice_text: str,
+    prompt_voice_asset_key: str,
+    prompt_voice_url: str,
+    language: str = None,
+    prompt_language: str = None,
+    add_end_silence: bool = False,
+) -> bytes:
     headers = {
         **_get_auth_headers(ZEROSHOT_API_URL),
         "Content-Type": "application/json"
@@ -87,6 +100,12 @@ def send_zero_shot_request(text: str,  prompt_voice_text: str,prompt_voice_asset
 
     if language is not None:
         text = f"<|{language}|>{text}"
+
+    if add_end_silence:
+        text = f"{text}{END_SILENCE_TOKEN}"
+
+    if prompt_language is not None:
+        prompt_voice_text = f"<|{prompt_language}|>{prompt_voice_text}"
 
     payload = {
         "input": {
@@ -139,18 +158,89 @@ def presign(content_type: str) -> tuple[str, dict[str, str]]:
     print(f"Presigned asset key: {asset_key}")
     return asset_key, form_data
 
-def upload_prompt_voice(file_path: str) -> str:
-    content_type = "audio/mpeg"
-    asset_key, form_data = presign(content_type)
-    file_name = os.path.basename(file_path)
+def pad_audio_with_silence(
+    input_path: str,
+    start_silence_sec: float = 0.0,
+    end_silence_sec: float = 0.0,
+) -> str:
+    """
+    Pad audio file with silence at the start and/or end using ffmpeg.
 
-    files=[
-        ('file',(file_name,open(file_path,'rb'), content_type))
+    Args:
+        input_path: Path to the input audio file
+        start_silence_sec: Duration of silence to add at the start (seconds)
+        end_silence_sec: Duration of silence to add at the end (seconds)
+
+    Returns:
+        Path to the padded audio file (temporary file if padding applied, original if not)
+    """
+    if start_silence_sec <= 0.0 and end_silence_sec <= 0.0:
+        return input_path
+
+    # Create a temporary file for the padded audio
+    suffix = os.path.splitext(input_path)[1]
+    temp_fd, temp_path = tempfile.mkstemp(suffix=suffix)
+    os.close(temp_fd)
+
+    # Build ffmpeg filter for padding
+    filters = []
+    if start_silence_sec > 0.0:
+        filters.append(f"adelay={int(start_silence_sec * 1000)}|{int(start_silence_sec * 1000)}")
+    if end_silence_sec > 0.0:
+        filters.append(f"apad=pad_dur={end_silence_sec}")
+
+    filter_str = ",".join(filters)
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-af", filter_str,
+        temp_path
     ]
 
-    response = requests.post(UPLOAD_URL, data=form_data, files=files)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Exception(f"ffmpeg padding failed: {result.stderr}")
 
-    if response.status_code != 204:
-        raise Exception(f"Upload request failed with status code {response.status_code}: {response.text}")
+    return temp_path
 
-    return asset_key
+
+def upload_prompt_voice(
+    file_path: str,
+    start_silence_sec: float = 0.0,
+    end_silence_sec: float = 0.0,
+) -> str:
+    """
+    Upload prompt voice file with optional silence padding.
+
+    Args:
+        file_path: Path to the prompt voice audio file
+        start_silence_sec: Duration of silence to add at the start (seconds)
+        end_silence_sec: Duration of silence to add at the end (seconds)
+
+    Returns:
+        Asset key for the uploaded file
+    """
+    # Apply silence padding if needed
+    padded_path = pad_audio_with_silence(file_path, start_silence_sec, end_silence_sec)
+    is_temp_file = padded_path != file_path
+
+    try:
+        content_type = "audio/mpeg"
+        asset_key, form_data = presign(content_type)
+        file_name = os.path.basename(file_path)
+
+        files=[
+            ('file',(file_name,open(padded_path,'rb'), content_type))
+        ]
+
+        response = requests.post(UPLOAD_URL, data=form_data, files=files)
+
+        if response.status_code != 204:
+            raise Exception(f"Upload request failed with status code {response.status_code}: {response.text}")
+
+        return asset_key
+    finally:
+        # Clean up temporary file if created
+        if is_temp_file and os.path.exists(padded_path):
+            os.remove(padded_path)

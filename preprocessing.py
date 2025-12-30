@@ -18,18 +18,34 @@ def preprocess_text(text: str) -> str:
     return ' '.join(cleaned_lines)
 
 
-def split_sentences(text: str) -> List[str]:
+# Segmentation mode constants
+SEGMENT_MODE_SENTENCE = "sentence"  # Split on sentence endings only: 。.？！?!
+SEGMENT_MODE_CLAUSE = "clause"      # Split on sentence + clause endings: 。.？！?!，,、；;
+
+
+def split_sentences(text: str, mode: str = SEGMENT_MODE_SENTENCE) -> List[str]:
     """
     Split text into sentences based on:
-    - Chinese punctuation (。！？)
+    - Chinese punctuation
     - Spaces/tabs between Chinese characters
 
     Args:
         text: Input text string
+        mode: Segmentation mode
+            - "sentence": Split on sentence ending marks only (。.？！?!)
+            - "clause": Split on sentence + clause ending marks (。.？！?!，,、；;)
 
     Returns:
         List of sentences
     """
+    # Define delimiter patterns based on mode
+    if mode == SEGMENT_MODE_CLAUSE:
+        # Sentence endings + clause endings (both CJK and ASCII variants)
+        delimiter_pattern = r'[。.？?！!，,、；;]'
+    else:
+        # Sentence endings only (both CJK and ASCII variants)
+        delimiter_pattern = r'[。.？?！!]'
+
     # First, split on spaces/tabs that appear between Chinese characters
     # This handles cases like "大哉大悟大聖主　　無垢無染無所著"
     # [\u4e00-\u9fff] matches Chinese characters
@@ -45,8 +61,8 @@ def split_sentences(text: str) -> List[str]:
         if not segment:
             continue
 
-        # Further split each segment on Chinese sentence delimiters: 。！？
-        sub_sentences = [s for s in re.split(r'[，、；。！？]', segment) if s]
+        # Further split each segment on delimiters based on mode
+        sub_sentences = [s for s in re.split(delimiter_pattern, segment) if s]
 
         if sub_sentences:
             # If we found sentences with delimiters, add them
