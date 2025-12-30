@@ -10,6 +10,9 @@ AILabs 基於 zero-shot 語音合成的批次文字轉語音工具，支援將�
 - 自動串接所有語音片段為單一音檔
 - 智能跳過已存在的音檔（避免重複生成）
 - 支援多語言（國語、台語、英文）
+- 可選擇分句模式（句號分句或逗號分句）
+- 支援結尾靜音標記（防止語音提前結束）
+- 支援提示音檔靜音填充（改善語音品質）
 
 ## 系統需求
 
@@ -53,6 +56,11 @@ python3 main.py \
 | `--language` | string | 是 | 語言代碼：`zh`（國語）、`nan`（台語）、`en`（英文） |
 | `--output-dir` | string | 是 | 輸出目錄路徑（存放分句音檔） |
 | `--output-wav` | string | 是 | 最終串接後的音檔路徑 |
+| `--prompt-language` | string | 否 | 提示音檔的語言標記，會在 prompt text 前加上 `<\|{lang}\|>` |
+| `--segment-mode` | string | 否 | 分句模式：`sentence`（句號分句，預設）或 `clause`（含逗號分句） |
+| `--add-end-silence` | flag | 否 | 在每句結尾加入 `<\|sil_200ms\|>` 靜音標記，防止語音提前結束 |
+| `--prompt-start-silence` | float | 否 | 在提示音檔開頭填充的靜音秒數（預設：0.0） |
+| `--prompt-end-silence` | float | 否 | 在提示音檔結尾填充的靜音秒數（預設：0.0） |
 
 ## 使用範例
 
@@ -82,6 +90,47 @@ python3 main.py \
     --output-wav output.wav
 ```
 
+### 範例 3：使用逗號分句模式
+
+當文本包含較長的句子，希望在逗號處也進行分割時：
+
+```bash
+python3 main.py \
+    --input-text "這是一段很長的句子，包含多個子句，需要在逗號處分割。" \
+    --prompt-voice-path ./samples/voice.wav \
+    --prompt-voice-text "我是一個提示音檔的範例內容。" \
+    --audio-basename "clause_test" \
+    --language zh \
+    --segment-mode clause \
+    --output-dir output \
+    --output-wav output.wav
+```
+
+### 範例 4：使用進階選項
+
+結合多種進階選項以改善語音品質：
+
+```bash
+python3 main.py \
+    --input-text "這是一段測試文本。" \
+    --prompt-voice-path ./samples/voice.wav \
+    --prompt-voice-text "我是一個提示音檔的範例內容。" \
+    --audio-basename "advanced_test" \
+    --language nan \
+    --prompt-language nan \
+    --add-end-silence \
+    --prompt-start-silence 0.3 \
+    --prompt-end-silence 0.3 \
+    --output-dir output \
+    --output-wav output.wav
+```
+
+此範例說明：
+- `--prompt-language nan`：為提示文字加上台語標記
+- `--add-end-silence`：防止語音提前結束
+- `--prompt-start-silence 0.3`：在提示音檔開頭加入 0.3 秒靜音
+- `--prompt-end-silence 0.3`：在提示音檔結尾加入 0.3 秒靜音
+
 ### 使用 run.sh 腳本
 
 您也可以編輯 `run.sh` 腳本來設定參數，然後執行：
@@ -95,8 +144,8 @@ bash run.sh
 程式會按照以下步驟執行：
 
 1. **文本預處理**：清理和標準化輸入文本
-2. **句子分割**：將長文本切分成多個句子
-3. **上傳提示音檔**：將提示音檔上傳至 TTS 服務
+2. **句子分割**：根據 `--segment-mode` 設定將長文本切分成多個句子
+3. **上傳提示音檔**：將提示音檔上傳至 TTS 服務（可選擇填充靜音）
 4. **批次生成語音**：為每個句子生成對應的語音檔案
    - 每個句子會生成一個獨立的 WAV 檔案
    - 檔名格式：`{audio-basename}_{索引}.wav`
@@ -148,6 +197,14 @@ output.wav                       # 最終串接的完整音檔
    - 如果某個句子生成失敗，程式會繼續處理其他句子
    - 最終只會串接成功生成的音檔
    - 查看控制台的 `[SUMMARY]` 部分了解成功/失敗的統計
+
+5. **分句模式選擇**：
+   - `sentence` 模式：在句號（。.？！?!）處分句，適合一般文本
+   - `clause` 模式：額外在逗號（，,、；;）處分句，適合長句或需要更細緻控制的場景
+
+6. **語音品質調整**：
+   - 若語音結尾有被截斷的情況，可使用 `--add-end-silence` 加入結尾靜音標記
+   - 若提示音檔開頭或結尾太過突兀，可使用 `--prompt-start-silence` 和 `--prompt-end-silence` 填充靜音
 
 ## 相關檔案
 
