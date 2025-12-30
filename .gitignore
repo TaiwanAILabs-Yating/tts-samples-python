@@ -214,3 +214,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Environment scripts with credentials
+dev.sh
+stg2.sh
+prod.sh
+env.sh
