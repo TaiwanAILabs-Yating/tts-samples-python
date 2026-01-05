@@ -121,6 +121,7 @@ python3 main.py \
     --add-end-silence \
     --prompt-start-silence 0.3 \
     --prompt-end-silence 0.3 \
+    --segment-mode clause \
     --output-dir output \
     --output-wav output.wav
 ```
