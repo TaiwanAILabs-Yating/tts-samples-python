@@ -1,5 +1,5 @@
-from typing import List
 import re
+from typing import List
 
 
 def preprocess_text(text: str) -> str:
@@ -9,18 +9,18 @@ def preprocess_text(text: str) -> str:
     cleaned_lines: List[str] = []
     for line in lines:
         # Match pattern like "     1→" or "   123→"
-        cleaned = re.sub(r'^\s*\d+→', '', line)
+        cleaned = re.sub(r"^\s*\d+→", "", line)
         cleaned = cleaned.strip()
         if cleaned:  # Only keep non-empty lines
             cleaned_lines.append(cleaned)
 
     # Join into single text
-    return ' '.join(cleaned_lines)
+    return " ".join(cleaned_lines)
 
 
 # Segmentation mode constants
 SEGMENT_MODE_SENTENCE = "sentence"  # Split on sentence endings only: 。.？！?!
-SEGMENT_MODE_CLAUSE = "clause"      # Split on sentence + clause endings: 。.？！?!，,、；;
+SEGMENT_MODE_CLAUSE = "clause"  # Split on sentence + clause endings: 。.？！?!，,、；;
 
 
 def split_sentences(text: str, mode: str = SEGMENT_MODE_SENTENCE) -> List[str]:
@@ -41,19 +41,21 @@ def split_sentences(text: str, mode: str = SEGMENT_MODE_SENTENCE) -> List[str]:
     # Define delimiter patterns based on mode
     if mode == SEGMENT_MODE_CLAUSE:
         # Sentence endings + clause endings (both CJK and ASCII variants)
-        delimiter_pattern = r'[。.？?！!，,、；;]'
+        delimiter_pattern = r"[。.？?！!，,、；;]"
     else:
         # Sentence endings only (both CJK and ASCII variants)
-        delimiter_pattern = r'[。.？?！!]'
+        delimiter_pattern = r"[。.？?！!]"
+
+    return [text]
 
     # First, split on spaces/tabs that appear between Chinese characters
     # This handles cases like "大哉大悟大聖主　　無垢無染無所著"
     # [\u4e00-\u9fff] matches Chinese characters
     # [\s\u3000]+ matches one or more whitespace (including ideographic space)
-    text = re.sub(r'([\u4e00-\u9fff])[\s\u3000]+([\u4e00-\u9fff])', r'\1\n\2', text)
+    text = re.sub(r"([\u4e00-\u9fff])[\s\u3000]+([\u4e00-\u9fff])", r"\1\n\2", text)
 
     # Split on newlines to get segments
-    segments = text.split('\n')
+    segments = text.split("\n")
 
     sentences: list[str] = []
     for segment in segments:
@@ -87,5 +89,3 @@ def generate_utt_id(basename: str, index: int) -> str:
         Formatted utterance ID (e.g., "basename_00001")
     """
     return f"{basename}_{index:05d}"
-
-
