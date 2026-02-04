@@ -46,8 +46,6 @@ def split_sentences(text: str, mode: str = SEGMENT_MODE_SENTENCE) -> List[str]:
         # Sentence endings only (both CJK and ASCII variants)
         delimiter_pattern = r"[。.？?！!]"
 
-    return [text]
-
     # First, split on spaces/tabs that appear between Chinese characters
     # This handles cases like "大哉大悟大聖主　　無垢無染無所著"
     # [\u4e00-\u9fff] matches Chinese characters

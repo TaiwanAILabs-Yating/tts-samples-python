@@ -110,6 +110,7 @@ def concat_wavs_ffmpeg(output_path: str, audio_paths: list[str]):
     subprocess.run(
         [
             "ffmpeg",
+            "-y",
             "-f",
             "concat",
             "-safe",
@@ -122,6 +123,76 @@ def concat_wavs_ffmpeg(output_path: str, audio_paths: list[str]):
         ],
         check=True,
     )
+
+
+def concat_wavs_with_crossfade(
+    output_path: str,
+    audio_paths: list[str],
+    crossfade_duration: float = 0.05,
+    fade_curve: str = "tri",
+) -> None:
+    """
+    Concatenate WAV files with crossfade to eliminate clicking/popping.
+
+    Args:
+        output_path: Path for the output WAV file
+        audio_paths: List of input WAV file paths
+        crossfade_duration: Duration of crossfade in seconds (default: 50ms)
+        fade_curve: Fade curve type for crossfade (default: "tri" = linear)
+    """
+    if not audio_paths:
+        raise ValueError("No audio files to concatenate")
+
+    if len(audio_paths) == 1:
+        import shutil
+
+        shutil.copy(audio_paths[0], output_path)
+        return
+
+    # Build input arguments
+    input_args = []
+    for path in audio_paths:
+        input_args.extend(["-i", path])
+
+    # Build filter complex for crossfading
+    if len(audio_paths) == 2:
+        # Simple case: two files
+        filter_complex = (
+            f"[0][1]acrossfade=d={crossfade_duration}:c1={fade_curve}:c2={fade_curve}"
+        )
+    else:
+        # Multiple files: chain crossfades
+        filters = []
+        for i in range(len(audio_paths) - 1):
+            if i == 0:
+                # First pair: [0][1] -> [a0]
+                filters.append(
+                    f"[0][1]acrossfade=d={crossfade_duration}:c1={fade_curve}:c2={fade_curve}[a0]"
+                )
+            elif i == len(audio_paths) - 2:
+                # Last pair: [a{i-1}][{i+1}] -> final output (no label)
+                filters.append(
+                    f"[a{i - 1}][{i + 1}]acrossfade=d={crossfade_duration}:c1={fade_curve}:c2={fade_curve}"
+                )
+            else:
+                # Middle pairs: [a{i-1}][{i+1}] -> [a{i}]
+                filters.append(
+                    f"[a{i - 1}][{i + 1}]acrossfade=d={crossfade_duration}:c1={fade_curve}:c2={fade_curve}[a{i}]"
+                )
+        filter_complex = ";".join(filters)
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        *input_args,
+        "-filter_complex",
+        filter_complex,
+        output_path,
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"FFmpeg crossfade failed: {result.stderr}")
 
 
 def main(args) -> None:
@@ -194,7 +265,18 @@ def main(args) -> None:
     audio_paths = [path for _, _, path, succ, _ in utterances if succ]
 
     if audio_paths:
-        concat_wavs_ffmpeg(args.output_wav, audio_paths)
+        if args.crossfade_duration > 0:
+            print(
+                f"[INFO] Using crossfade: duration={args.crossfade_duration}s, curve={args.crossfade_curve}"
+            )
+            concat_wavs_with_crossfade(
+                args.output_wav,
+                audio_paths,
+                crossfade_duration=args.crossfade_duration,
+                fade_curve=args.crossfade_curve,
+            )
+        else:
+            concat_wavs_ffmpeg(args.output_wav, audio_paths)
         print(f"[OK] Concatenated audio saved: {args.output_wav}")
     else:
         print("[WARNING] No audio files to concatenate")
@@ -245,6 +327,20 @@ if __name__ == "__main__":
         type=float,
         default=0.0,
         help="Duration (seconds) of silence to pad at end of prompt audio (default: 0.0)",
+    )
+    # Crossfade options for reducing audio artifacts
+    parser.add_argument(
+        "--crossfade-duration",
+        type=float,
+        default=0.05,
+        help="Crossfade duration in seconds between audio segments (0 = disabled, recommended: 0.03-0.1)",
+    )
+    parser.add_argument(
+        "--crossfade-curve",
+        type=str,
+        default="hsin",
+        choices=["tri", "qsin", "hsin", "log", "exp"],
+        help="Crossfade curve type (default: tri = linear)",
     )
     args = parser.parse_args()
 
