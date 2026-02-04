@@ -55,7 +55,7 @@ def generate_audio(
     language: str = None,
     prompt_language: str = None,
     add_end_silence: bool = False,
-) -> Tuple[str, str, str, bool, str]:
+) -> Tuple[str, str, str, bool, str, float]:
     """
     Generate audio for a single sentence using the specified TTS mode.
 
@@ -68,12 +68,15 @@ def generate_audio(
         add_end_silence: Whether to add end silence token to prevent premature ending
 
     Returns:
-        Tuple of (utt_id, sentence, output_path, success, status_message)
+        Tuple of (utt_id, sentence, output_path, success, status_message, duration)
     """
     # Check if we should skip existing files
     if os.path.exists(output_path):
         print(f"[SKIP] {utt_id}: File already exists")
-        return (utt_id, sentence, output_path, True, "skipped")
+        # Get duration from existing file
+        with open(output_path, "rb") as f:
+            duration = get_wav_duration(f.read())
+        return (utt_id, sentence, output_path, True, "skipped", duration)
 
     try:
         print(f"[GEN] {utt_id}: {sentence[:50]}...")
@@ -94,11 +97,37 @@ def generate_audio(
 
         duration = get_wav_duration(tts_speech)
         print(f"[OK] {utt_id}: Generated {duration:.2f}s")
-        return (utt_id, sentence, output_path, True, "generated")
+        return (utt_id, sentence, output_path, True, "generated", duration)
 
     except Exception as e:
         print(f"[ERROR] {utt_id}: {str(e)}")
-        return (utt_id, sentence, output_path, False, str(e))
+        return (utt_id, sentence, output_path, False, str(e), 0.0)
+
+
+def format_srt_time(seconds: float) -> str:
+    """Format seconds to SRT time format: HH:MM:SS,mmm"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def generate_srt(output_path: str, segments: list[tuple[str, float]]) -> None:
+    """
+    Generate SRT subtitle file from segments.
+
+    Args:
+        output_path: Path to output SRT file
+        segments: List of (text, duration) tuples
+    """
+    current_time = 0.0
+    with open(output_path, "w", encoding="utf-8") as f:
+        for idx, (text, duration) in enumerate(segments, 1):
+            start = format_srt_time(current_time)
+            end = format_srt_time(current_time + duration)
+            f.write(f"{idx}\n{start} --> {end}\n{text}\n\n")
+            current_time += duration
 
 
 def concat_wavs_ffmpeg(output_path: str, audio_paths: list[str]):
@@ -254,7 +283,7 @@ def main(args) -> None:
         utterances.append(result)
 
     # Summary of generation
-    successful = sum(1 for _, _, _, succ, _ in utterances if succ)
+    successful = sum(1 for _, _, _, succ, _, _ in utterances if succ)
     failed = len(utterances) - successful
     print(f"\n[SUMMARY] Generated: {successful}/{len(utterances)} sentences")
     if failed > 0:
@@ -262,7 +291,7 @@ def main(args) -> None:
 
     # Step 4: Concatenate audio files
     print("\n[STEP 4] Concatenating audio files...")
-    audio_paths = [path for _, _, path, succ, _ in utterances if succ]
+    audio_paths = [path for _, _, path, succ, _, _ in utterances if succ]
 
     if audio_paths:
         if args.crossfade_duration > 0:
@@ -281,6 +310,20 @@ def main(args) -> None:
     else:
         print("[WARNING] No audio files to concatenate")
 
+    # Step 5: Generate SRT subtitle file (if requested)
+    if args.output_srt:
+        print("\n[STEP 5] Generating SRT subtitle file...")
+        srt_segments = [
+            (sentence, duration)
+            for _, sentence, _, succ, _, duration in utterances
+            if succ
+        ]
+        if srt_segments:
+            generate_srt(args.output_srt, srt_segments)
+            print(f"[OK] SRT subtitle saved: {args.output_srt}")
+        else:
+            print("[WARNING] No segments for SRT generation")
+
     print("\n[DONE] Batch TTS generation complete!")
 
 
@@ -294,6 +337,12 @@ if __name__ == "__main__":
     parser.add_argument("--audio-basename", type=str)
     parser.add_argument("--output-dir", type=str)
     parser.add_argument("--output-wav", type=str)
+    parser.add_argument(
+        "--output-srt",
+        type=str,
+        default=None,
+        help="Output SRT subtitle file path",
+    )
     parser.add_argument("--language", type=str)
     parser.add_argument(
         "--prompt-language",
