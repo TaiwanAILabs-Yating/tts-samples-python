@@ -11,6 +11,7 @@ from preprocessing import (
     SEGMENT_MODE_CLAUSE,
     SEGMENT_MODE_RAW,
     SEGMENT_MODE_SENTENCE,
+    count_tokens,
     generate_utt_id,
     preprocess_text,
     split_sentences,
@@ -240,6 +241,11 @@ def main(args) -> None:
     max_tokens = args.max_tokens if args.max_tokens else 70
     sentences = split_sentences(text, mode=segment_mode, max_tokens=max_tokens)
     print(f"[INFO] Found {len(sentences)} sentences")
+    for i, sent in enumerate(sentences):
+        tokens = count_tokens(sent)
+        print(
+            f"[INFO] Segment {i}: {tokens} tokens - {sent[:30]}{'...' if len(sent) > 30 else ''}"
+        )
 
     # Step 3: Generate audio for each sentence
     print("\n[STEP 3] Generating audio...")
@@ -363,7 +369,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=70,
+        default=60,
         help="Maximum tokens per segment in sentence mode (default: 70, range: 60-80)",
     )
     # End silence token
