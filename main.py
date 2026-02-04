@@ -9,6 +9,7 @@ from typing import Tuple
 from client import send_zero_shot_request, upload_prompt_voice
 from preprocessing import (
     SEGMENT_MODE_CLAUSE,
+    SEGMENT_MODE_RAW,
     SEGMENT_MODE_SENTENCE,
     generate_utt_id,
     preprocess_text,
@@ -236,7 +237,8 @@ def main(args) -> None:
     print("[STEP 2] Splitting into sentences...")
     segment_mode = args.segment_mode if args.segment_mode else SEGMENT_MODE_SENTENCE
     print(f"[INFO] Segmentation mode: {segment_mode}")
-    sentences = split_sentences(text, mode=segment_mode)
+    max_tokens = args.max_tokens if args.max_tokens else 70
+    sentences = split_sentences(text, mode=segment_mode, max_tokens=max_tokens)
     print(f"[INFO] Found {len(sentences)} sentences")
 
     # Step 3: Generate audio for each sentence
@@ -354,9 +356,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--segment-mode",
         type=str,
-        choices=[SEGMENT_MODE_SENTENCE, SEGMENT_MODE_CLAUSE],
+        choices=[SEGMENT_MODE_RAW, SEGMENT_MODE_SENTENCE, SEGMENT_MODE_CLAUSE],
         default=SEGMENT_MODE_SENTENCE,
-        help="Segmentation mode: 'sentence' (split on 。.？！?!) or 'clause' (split on 。.？！?!，,、；;)",
+        help="Segmentation mode: 'raw' (no splitting), 'sentence' (split on 。.？！?!), 'clause' (split on 。.？！?!，,、；;)",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=70,
+        help="Maximum tokens per segment in sentence mode (default: 70, range: 60-80)",
     )
     # End silence token
     parser.add_argument(
