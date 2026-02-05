@@ -58,7 +58,7 @@ python3 main.py \
 | `--output-dir` | string | 是 | 輸出目錄路徑（存放分句音檔） |
 | `--output-wav` | string | 是 | 最終串接後的音檔路徑 |
 | `--prompt-language` | string | 否 | 提示音檔的語言標記，會在 prompt text 前加上 `<\|{lang}\|>` |
-| `--segment-mode` | string | 否 | 分句模式：`sentence`（句號分句，預設）或 `clause`（含逗號分句） |
+| `--segment-mode` | string | 否 | 分段模式：`raw`（不分段）、`sentence`（句號分段，預設）、`clause`（含逗號分段） |
 | `--add-end-silence` | flag | 否 | 在每句結尾加入 `<\|sil_200ms\|>` 靜音標記，防止語音提前結束 |
 | `--prompt-start-silence` | float | 否 | 在提示音檔開頭填充的靜音秒數（預設：0.0） |
 | `--prompt-end-silence` | float | 否 | 在提示音檔結尾填充的靜音秒數（預設：0.0） |
@@ -86,6 +86,23 @@ python3 main.py \
 00:00:02,345 --> 00:00:05,678
 第二個句子
 ```
+## Token-Based 分段參數
+
+| 參數 | 類型 | 預設值 | 說明 |
+|------|------|--------|------|
+| `--min-tokens` | int | `60` | 軟性最小 token 數，用於合併過短的段落 |
+| `--max-tokens` | int | `80` | 硬性最大 token 數，確保每段不超過此限制 |
+
+### Token 計算規則
+- 中文字符：1 token
+- 英文單詞：1.5 tokens
+
+### 分段演算法
+1. 按標點符號分割
+2. 若段落 > max_tokens，嘗試按子句分割
+3. 若仍超過，按字符強制分割
+4. 貪心合併相鄰段落（若合併後 <= max_tokens）
+5. 處理過短的尾段（< min_tokens 則與前段合併）
 
 ## 使用範例
 
