@@ -35,71 +35,152 @@ def count_tokens(text: str) -> int:
     return chinese_chars + int(english_words * 1.5)
 
 
-def balance_segments(segments: List[str], max_tokens: int = 70) -> List[str]:
+def force_split_by_char(text: str, max_tokens: int) -> List[str]:
     """
-    Balance segment token counts to ensure even distribution.
+    Force split text by character when no punctuation is available.
+
+    Args:
+        text: Text to split
+        max_tokens: Maximum tokens per segment
+
+    Returns:
+        List of segments, each <= max_tokens
+    """
+    result = []
+    current = ""
+    for char in text:
+        if count_tokens(current + char) <= max_tokens:
+            current += char
+        else:
+            if current:
+                result.append(current)
+            current = char
+    if current:
+        result.append(current)
+    return result
+
+
+def ensure_max_tokens(text: str, max_tokens: int) -> List[str]:
+    """
+    Ensure text is split into segments where each segment <= max_tokens.
 
     Strategy:
-    1. Merge adjacent segments if combined tokens <= max_tokens
-    2. If last segment is too short (< half of average), redistribute
-    3. Ensure each segment doesn't exceed max_tokens
+    1. If text already <= max_tokens, return as-is
+    2. Try splitting by clause punctuation (，,、；;)
+    3. If any part still > max_tokens, force split by character
+
+    Args:
+        text: Text to process
+        max_tokens: Maximum tokens per segment
+
+    Returns:
+        List of segments, each guaranteed <= max_tokens
+    """
+    if count_tokens(text) <= max_tokens:
+        return [text]
+
+    # Split by clause punctuation, keeping delimiters
+    parts = re.split(r"([，,、；;])", text)
+
+    result = []
+    current = ""
+
+    for part in parts:
+        if count_tokens(current + part) <= max_tokens:
+            current += part
+        else:
+            if current:
+                if count_tokens(current) > max_tokens:
+                    # Recursively force split
+                    result.extend(force_split_by_char(current, max_tokens))
+                else:
+                    result.append(current)
+            current = part
+
+    if current:
+        if count_tokens(current) > max_tokens:
+            result.extend(force_split_by_char(current, max_tokens))
+        else:
+            result.append(current)
+
+    return result
+
+
+def balance_segments(
+    segments: List[str], min_tokens: int = 60, max_tokens: int = 80
+) -> List[str]:
+    """
+    Balance segment token counts with hard max_tokens limit and soft min_tokens target.
+
+    Algorithm:
+    1. First ensure all segments <= max_tokens (using ensure_max_tokens)
+    2. Greedy merge: combine adjacent segments if combined <= max_tokens
+    3. Post-process: if last segment is too short, try merging with previous
+
+    Args:
+        segments: List of text segments to balance
+        min_tokens: Soft minimum tokens per segment (default 60)
+        max_tokens: Hard maximum tokens per segment (default 80)
+
+    Returns:
+        List of balanced segments, each guaranteed <= max_tokens
     """
     if not segments:
         return segments
 
-    if len(segments) == 1:
-        return segments
+    # Step 1: Ensure all segments are <= max_tokens
+    atomic = []
+    for seg in segments:
+        atomic.extend(ensure_max_tokens(seg, max_tokens))
 
-    # Calculate token counts for each segment
-    token_counts = [count_tokens(s) for s in segments]
-    total_tokens = sum(token_counts)
+    # At this point, every piece in atomic is guaranteed <= max_tokens
 
-    # If total is small enough, return as single segment
-    if total_tokens <= max_tokens:
-        return ["".join(segments)]
+    if not atomic:
+        return []
 
-    # Merge small adjacent segments
-    merged = []
-    current_segment = ""
+    if len(atomic) == 1:
+        return atomic
+
+    # Step 2: Greedy merge - only combine if won't exceed max_tokens
+    result = []
+    current = ""
     current_tokens = 0
 
-    for seg, tokens in zip(segments, token_counts):
-        if current_tokens + tokens <= max_tokens:
-            current_segment += seg
-            current_tokens += tokens
+    for piece in atomic:
+        piece_tokens = count_tokens(piece)
+
+        if current_tokens + piece_tokens <= max_tokens:
+            # Can merge without exceeding max
+            current += piece
+            current_tokens += piece_tokens
         else:
-            if current_segment:
-                merged.append(current_segment)
-            current_segment = seg
-            current_tokens = tokens
+            # Would exceed max, start new segment
+            if current:
+                result.append(current)
+            current = piece
+            current_tokens = piece_tokens
 
-    if current_segment:
-        merged.append(current_segment)
+    # Don't forget the last segment
+    if current:
+        result.append(current)
 
-    # Check if last segment is too short
-    if len(merged) >= 2:
-        merged_tokens = [count_tokens(s) for s in merged]
-        avg_tokens = sum(merged_tokens) / len(merged_tokens)
+    # Step 3: Post-process - handle short last segment
+    if len(result) >= 2:
+        last_tokens = count_tokens(result[-1])
+        if last_tokens < min_tokens:
+            # Try merging with previous segment
+            combined = result[-2] + result[-1]
+            if count_tokens(combined) <= max_tokens:
+                result = result[:-2] + [combined]
 
-        # If last segment is less than half the average, merge with previous
-        if merged_tokens[-1] < avg_tokens * 0.5:
-            # Try to redistribute more evenly
-            combined = merged[-2] + merged[-1]
-            combined_tokens = count_tokens(combined)
-
-            if combined_tokens <= max_tokens:
-                # Simply merge last two
-                merged = merged[:-2] + [combined]
-            else:
-                # Need to split more evenly - keep as is for now
-                # More complex redistribution could be added here
-                pass
-
-    return merged
+    return result
 
 
 def split_sentences(
-    text: str, mode: str = SEGMENT_MODE_SENTENCE, max_tokens: int = 70
+    text: str,
+    mode: str = SEGMENT_MODE_SENTENCE,
+    min_tokens: int = 60,
+    max_tokens: int = 80,
 ) -> List[str]:
     """
     Split text into sentences based on:
@@ -112,7 +193,8 @@ def split_sentences(
             - "raw": No splitting, return text as-is
             - "sentence": Split on sentence ending marks only (。.？！?!)
             - "clause": Split on sentence + clause ending marks (。.？！?!，,、；;)
-        max_tokens: Maximum tokens per segment (used in sentence mode)
+        min_tokens: Soft minimum tokens per segment (default 60)
+        max_tokens: Hard maximum tokens per segment (default 80)
 
     Returns:
         List of sentences
@@ -157,7 +239,7 @@ def split_sentences(
 
     # Balance segments in sentence mode to ensure even token distribution
     if mode == SEGMENT_MODE_SENTENCE:
-        sentences = balance_segments(sentences, max_tokens)
+        sentences = balance_segments(sentences, min_tokens, max_tokens)
 
     return sentences
 

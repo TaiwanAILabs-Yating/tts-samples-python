@@ -238,8 +238,12 @@ def main(args) -> None:
     print("[STEP 2] Splitting into sentences...")
     segment_mode = args.segment_mode if args.segment_mode else SEGMENT_MODE_SENTENCE
     print(f"[INFO] Segmentation mode: {segment_mode}")
-    max_tokens = args.max_tokens if args.max_tokens else 70
-    sentences = split_sentences(text, mode=segment_mode, max_tokens=max_tokens)
+    min_tokens = args.min_tokens if args.min_tokens else 60
+    max_tokens = args.max_tokens if args.max_tokens else 80
+    print(f"[INFO] Token limits: min={min_tokens}, max={max_tokens}")
+    sentences = split_sentences(
+        text, mode=segment_mode, min_tokens=min_tokens, max_tokens=max_tokens
+    )
     print(f"[INFO] Found {len(sentences)} sentences")
     for i, sent in enumerate(sentences):
         tokens = count_tokens(sent)
@@ -367,10 +371,16 @@ if __name__ == "__main__":
         help="Segmentation mode: 'raw' (no splitting), 'sentence' (split on 。.？！?!), 'clause' (split on 。.？！?!，,、；;)",
     )
     parser.add_argument(
-        "--max-tokens",
+        "--min-tokens",
         type=int,
         default=60,
-        help="Maximum tokens per segment in sentence mode (default: 70, range: 60-80)",
+        help="Soft minimum tokens per segment in sentence mode (default: 60)",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=80,
+        help="Hard maximum tokens per segment in sentence mode (default: 80)",
     )
     # End silence token
     parser.add_argument(
