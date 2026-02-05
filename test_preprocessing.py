@@ -7,6 +7,7 @@ from preprocessing import (
     ensure_max_tokens,
     balance_segments,
     split_sentences,
+    strip_punctuation,
     SEGMENT_MODE_SENTENCE,
 )
 
@@ -173,6 +174,66 @@ class TestSplitSentences:
         original_chars = re.sub(r"[。.？?！!，,、；;\s]", "", FIXTURE)
         result_chars = re.sub(r"[。.？?！!，,、；;\s]", "", "".join(result))
         assert original_chars == result_chars
+
+
+class TestStripPunctuation:
+    """Tests for strip_punctuation function."""
+
+    def test_removes_leading_punctuation(self):
+        """Leading punctuation is removed."""
+        assert strip_punctuation("，你好") == "你好"
+        assert strip_punctuation("。！？你好") == "你好"
+        assert strip_punctuation("、；;你好") == "你好"
+
+    def test_removes_trailing_comma(self):
+        """Trailing comma/clause punctuation is removed."""
+        assert strip_punctuation("你好，") == "你好"
+        assert strip_punctuation("你好、") == "你好"
+        assert strip_punctuation("你好；") == "你好"
+
+    def test_keeps_trailing_sentence_ending(self):
+        """Trailing sentence-ending punctuation is kept."""
+        assert strip_punctuation("你好。") == "你好。"
+        assert strip_punctuation("你好！") == "你好！"
+        assert strip_punctuation("你好？") == "你好？"
+
+    def test_combined(self):
+        """Both leading and trailing are handled correctly."""
+        assert strip_punctuation("，你好。") == "你好。"
+        assert strip_punctuation("、世界！") == "世界！"
+
+
+class TestPunctuationInSplitSentences:
+    """Tests for punctuation handling in split_sentences."""
+
+    def test_no_leading_punctuation(self):
+        """No segment should start with punctuation."""
+        result = split_sentences(
+            FIXTURE, mode=SEGMENT_MODE_SENTENCE, min_tokens=60, max_tokens=80
+        )
+        import re
+        leading_punct = r'^[。.？?！!，,、；;：:「」『』（）()\[\]【】]'
+        for i, seg in enumerate(result):
+            assert not re.match(leading_punct, seg), f"Segment {i} starts with punctuation: {seg[:20]}"
+
+    def test_no_trailing_comma(self):
+        """No segment should end with comma-type punctuation."""
+        result = split_sentences(
+            FIXTURE, mode=SEGMENT_MODE_SENTENCE, min_tokens=60, max_tokens=80
+        )
+        import re
+        trailing_comma = r'[，,、；;：:「」『』（）()\[\]【】]$'
+        for i, seg in enumerate(result):
+            assert not re.search(trailing_comma, seg), f"Segment {i} ends with comma: {seg[-20:]}"
+
+    def test_preserves_sentence_ending(self):
+        """Sentence-ending punctuation should be preserved where appropriate."""
+        text = "第一句。第二句！第三句？"
+        result = split_sentences(text, mode=SEGMENT_MODE_SENTENCE, min_tokens=5, max_tokens=20)
+        # At least some segments should end with sentence-ending punctuation
+        import re
+        sentence_endings = sum(1 for seg in result if re.search(r'[。！？]$', seg))
+        assert sentence_endings > 0, "No sentence endings preserved"
 
 
 class TestEdgeCases:

@@ -23,6 +23,24 @@ SEGMENT_MODE_RAW = "raw"  # No splitting, send text as-is
 SEGMENT_MODE_SENTENCE = "sentence"  # Split on sentence endings only: 。.？！?!
 SEGMENT_MODE_CLAUSE = "clause"  # Split on sentence + clause endings: 。.？！?!，,、；;
 
+# Punctuation patterns for stripping
+# Leading: remove all punctuation from start
+LEADING_PUNCTUATION = r'^[。.？?！!，,、；;：:「」『』（）()\[\]【】\s]+'
+# Trailing: only remove non-sentence-ending punctuation (keep 。！？)
+TRAILING_PUNCTUATION = r'[，,、；;：:「」『』（）()\[\]【】\s]+$'
+
+
+def strip_punctuation(text: str) -> str:
+    """
+    Strip punctuation from text edges.
+
+    - Leading: remove all punctuation
+    - Trailing: remove only non-sentence-ending punctuation (keep 。！？)
+    """
+    text = re.sub(LEADING_PUNCTUATION, '', text)
+    text = re.sub(TRAILING_PUNCTUATION, '', text)
+    return text
+
 
 def count_tokens(text: str) -> int:
     """
@@ -226,8 +244,20 @@ def split_sentences(
         if not segment:
             continue
 
-        # Further split each segment on delimiters based on mode
-        sub_sentences = [s for s in re.split(delimiter_pattern, segment) if s]
+        # Further split each segment on delimiters, preserving punctuation
+        # Use capturing group to keep delimiters
+        parts = re.split(f"({delimiter_pattern})", segment)
+
+        sub_sentences: list[str] = []
+        for part in parts:
+            if not part:
+                continue
+            if re.match(delimiter_pattern, part):
+                # This is a delimiter, append to previous sentence
+                if sub_sentences:
+                    sub_sentences[-1] += part
+            else:
+                sub_sentences.append(part)
 
         if sub_sentences:
             # If we found sentences with delimiters, add them
@@ -240,6 +270,10 @@ def split_sentences(
     # Balance segments in sentence mode to ensure even token distribution
     if mode == SEGMENT_MODE_SENTENCE:
         sentences = balance_segments(sentences, min_tokens, max_tokens)
+
+    # Clean up: strip leading/trailing punctuation from each segment
+    sentences = [strip_punctuation(s) for s in sentences]
+    sentences = [s for s in sentences if s]  # Remove empty segments
 
     return sentences
 
