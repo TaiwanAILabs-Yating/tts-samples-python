@@ -373,13 +373,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--min-tokens",
         type=int,
-        default=60,
+        default=10,
         help="Soft minimum tokens per segment in sentence mode (default: 60)",
     )
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=80,
+        default=40,
         help="Hard maximum tokens per segment in sentence mode (default: 80)",
     )
     # End silence token

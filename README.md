@@ -90,8 +90,8 @@ python3 main.py \
 
 | 參數 | 類型 | 預設值 | 說明 |
 |------|------|--------|------|
-| `--min-tokens` | int | `60` | 軟性最小 token 數，用於合併過短的段落 |
-| `--max-tokens` | int | `80` | 硬性最大 token 數，確保每段不超過此限制 |
+| `--min-tokens` | int | `10` | 軟性最小 token 數，用於合併過短的段落 |
+| `--max-tokens` | int | `40` | 硬性最大 token 數，確保每段不超過此限制 |
 
 ### Token 計算規則
 - 中文字符：1 token
