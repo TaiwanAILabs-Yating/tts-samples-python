@@ -340,7 +340,7 @@ if __name__ == "__main__":
         type=str,
         default="hsin",
         choices=["tri", "qsin", "hsin", "log", "exp"],
-        help="Crossfade curve type (default: tri = linear)",
+        help="Crossfade curve type (default: hsin)",
     )
     args = parser.parse_args()
 
