@@ -3,7 +3,9 @@
 import io
 import os
 import subprocess
+import time
 import wave
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Tuple
 
 from client import send_zero_shot_request, upload_prompt_voice
@@ -47,7 +49,7 @@ def get_wav_duration(wav_bytes: bytes) -> float:
     return actual_frames / sample_rate
 
 
-def generate_audio(
+def generate_audio_with_retry(
     utt_id: str,
     output_path: str,
     sentence: str,
@@ -57,17 +59,24 @@ def generate_audio(
     language: str = None,
     prompt_language: str = None,
     add_end_silence: bool = False,
+    max_retries: int = 3,
+    retry_base_delay: float = 1.0,
 ) -> Tuple[str, str, str, bool, str, float]:
     """
-    Generate audio for a single sentence using the specified TTS mode.
+    Generate audio for a single sentence with exponential backoff retry.
 
     Args:
-        sentence: Text to synthesize
         utt_id: Utterance ID
         output_path: Where to save audio file
-        args: Command-line arguments
-        mode: TTS mode ("zero_shot", "streaming", or "sft")
-        add_end_silence: Whether to add end silence token to prevent premature ending
+        sentence: Text to synthesize
+        prompt_voice_text: Text corresponding to prompt voice
+        prompt_voice_asset_key: Asset key for uploaded prompt voice
+        prompt_voice_url: Optional URL for prompt voice
+        language: Target language code
+        prompt_language: Language tag for prompt text
+        add_end_silence: Whether to add end silence token
+        max_retries: Maximum retry attempts for failed requests
+        retry_base_delay: Base delay in seconds for exponential backoff
 
     Returns:
         Tuple of (utt_id, sentence, output_path, success, status_message, duration)
@@ -80,30 +89,47 @@ def generate_audio(
             duration = get_wav_duration(f.read())
         return (utt_id, sentence, output_path, True, "skipped", duration)
 
-    try:
-        print(f"[GEN] {utt_id}: {sentence[:50]}...")
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            if attempt > 0:
+                delay = retry_base_delay * (2 ** (attempt - 1))
+                print(
+                    f"[RETRY] {utt_id}: Attempt {attempt + 1}/{max_retries + 1}, waiting {delay:.1f}s..."
+                )
+                time.sleep(delay)
 
-        tts_speech: bytes = send_zero_shot_request(
-            text=sentence,
-            prompt_voice_text=prompt_voice_text,
-            prompt_voice_asset_key=prompt_voice_asset_key,
-            prompt_voice_url=prompt_voice_url,
-            language=language,
-            prompt_language=prompt_language,
-            add_end_silence=add_end_silence,
-        )
+            print(f"[GEN] {utt_id}: {sentence[:50]}...")
 
-        # Save to WAV file
-        with open(output_path, "wb") as f:
-            f.write(tts_speech)
+            tts_speech: bytes = send_zero_shot_request(
+                text=sentence,
+                prompt_voice_text=prompt_voice_text,
+                prompt_voice_asset_key=prompt_voice_asset_key,
+                prompt_voice_url=prompt_voice_url,
+                language=language,
+                prompt_language=prompt_language,
+                add_end_silence=add_end_silence,
+            )
 
-        duration = get_wav_duration(tts_speech)
-        print(f"[OK] {utt_id}: Generated {duration:.2f}s")
-        return (utt_id, sentence, output_path, True, "generated", duration)
+            # Save to WAV file
+            with open(output_path, "wb") as f:
+                f.write(tts_speech)
 
-    except Exception as e:
-        print(f"[ERROR] {utt_id}: {str(e)}")
-        return (utt_id, sentence, output_path, False, str(e), 0.0)
+            duration = get_wav_duration(tts_speech)
+            print(f"[OK] {utt_id}: Generated {duration:.2f}s")
+            return (utt_id, sentence, output_path, True, "generated")
+
+        except Exception as e:
+            last_error = str(e)
+            print(f"[ERROR] {utt_id}: Attempt {attempt + 1} failed - {last_error}")
+
+    return (
+        utt_id,
+        sentence,
+        output_path,
+        False,
+        f"Failed after {max_retries + 1} attempts: {last_error}",
+    )
 
 
 def format_srt_time(seconds: float) -> str:
@@ -278,21 +304,49 @@ def main(args) -> None:
     if prompt_language:
         print(f"[INFO] Prompt language: {prompt_language}")
 
+    max_parallel = args.max_parallel if args.max_parallel else 1
+    max_retries = args.max_retries if args.max_retries else 3
+    retry_base_delay = args.retry_base_delay if args.retry_base_delay else 1.0
+
+    if max_parallel > 1:
+        print(f"[INFO] Parallel mode: max {max_parallel} concurrent requests")
+    print(
+        f"[INFO] Retry config: max_retries={max_retries}, base_delay={retry_base_delay}s"
+    )
+
+    # Prepare tasks
+    tasks = []
     for idx, sentence in enumerate(sentences):
         utt_id = generate_utt_id(args.audio_basename, idx)
         output_path = os.path.join(args.output_dir, f"{utt_id}.wav")
+        tasks.append((idx, utt_id, output_path, sentence))
 
-        result = generate_audio(
-            utt_id,
-            output_path,
-            sentence,
-            prompt_voice_text=args.prompt_voice_text,
-            prompt_voice_asset_key=asset_key,
-            language=args.language,
-            prompt_language=prompt_language,
-            add_end_silence=add_end_silence,
-        )
-        utterances.append(result)
+    # Execute tasks (parallel or sequential)
+    with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+        futures = {
+            executor.submit(
+                generate_audio_with_retry,
+                utt_id,
+                output_path,
+                sentence,
+                prompt_voice_text=args.prompt_voice_text,
+                prompt_voice_asset_key=asset_key,
+                language=args.language,
+                prompt_language=prompt_language,
+                add_end_silence=add_end_silence,
+                max_retries=max_retries,
+                retry_base_delay=retry_base_delay,
+            ): idx
+            for idx, utt_id, output_path, sentence in tasks
+        }
+
+        # Collect results, maintaining original order
+        results = [None] * len(tasks)
+        for future in as_completed(futures):
+            idx = futures[future]
+            results[idx] = future.result()
+
+        utterances = results
 
     # Summary of generation
     successful = sum(1 for _, _, _, succ, _, _ in utterances if succ)
@@ -414,6 +468,25 @@ if __name__ == "__main__":
         default="hsin",
         choices=["tri", "qsin", "hsin", "log", "exp"],
         help="Crossfade curve type (default: hsin)",
+    )
+    # Parallel execution options
+    parser.add_argument(
+        "--max-parallel",
+        type=int,
+        default=1,
+        help="Maximum number of parallel TTS requests (default: 1, sequential)",
+    )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Maximum retry attempts for failed requests (default: 3)",
+    )
+    parser.add_argument(
+        "--retry-base-delay",
+        type=float,
+        default=1.0,
+        help="Base delay in seconds for exponential backoff (default: 1.0)",
     )
     args = parser.parse_args()
 
