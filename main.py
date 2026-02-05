@@ -241,7 +241,7 @@ def main(args) -> None:
 
     # Step 3: Generate audio for each sentence
     print("\n[STEP 3] Generating audio...")
-    utterances: list[tuple[str, str, str, bool, str]] = []
+    utterances: list[tuple[str, str, str, bool, str, float]] = []
 
     start_silence = args.prompt_start_silence if args.prompt_start_silence else 0.0
     end_silence = args.prompt_end_silence if args.prompt_end_silence else 0.0
