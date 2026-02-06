@@ -126,123 +126,25 @@ python3 main.py \
 
 ## 使用範例
 
-### 範例 1：生成台語語音
-
 ```bash
 python3 main.py \
-    --input-text "這是一段台語測試文本。今仔日天氣真好。" \
-    --prompt-voice-path ./samples/voice.wav \
-    --prompt-voice-text "我是一個提示音檔的範例內容。" \
-    --audio-basename "taiwanese_test" \
+    --input-text "<您的輸入文本>" \
+    --prompt-voice-path /path/to/your/audio/file.wav \
+    --prompt-voice-text "<提示音檔的文字內容>" \
+    --audio-basename "<音檔基礎名稱>" \
     --language nan \
     --output-dir output \
-    --output-wav output.wav
-```
-
-### 範例 2：生成國語語音
-
-```bash
-python3 main.py \
-    --input-text "這是一段國語測試文本。今天天氣很好。" \
-    --prompt-voice-path ./samples/voice.wav \
-    --prompt-voice-text "我是一個提示音檔的範例內容。" \
-    --audio-basename "mandarin_test" \
-    --language zh \
-    --output-dir output \
-    --output-wav output.wav
-```
-
-### 範例 3：使用逗號分句模式
-
-當文本包含較長的句子，希望在逗號處也進行分割時：
-
-```bash
-python3 main.py \
-    --input-text "這是一段很長的句子，包含多個子句，需要在逗號處分割。" \
-    --prompt-voice-path ./samples/voice.wav \
-    --prompt-voice-text "我是一個提示音檔的範例內容。" \
-    --audio-basename "clause_test" \
-    --language zh \
-    --segment-mode clause \
-    --output-dir output \
-    --output-wav output.wav
-```
-
-### 範例 4：使用進階選項
-
-結合多種進階選項以改善語音品質：
-
-```bash
-python3 main.py \
-    --input-text "這是一段測試文本。" \
-    --prompt-voice-path ./samples/voice.wav \
-    --prompt-voice-text "我是一個提示音檔的範例內容。" \
-    --audio-basename "advanced_test" \
-    --language nan \
+    --output-wav output.wav \
+    --segment-mode sentence \
+    --max-tokens 40 \
+    --min-tokens 10 \
     --prompt-language nan \
     --add-end-silence \
     --prompt-start-silence 0.3 \
     --prompt-end-silence 0.3 \
-    --segment-mode clause \
-    --output-dir output \
-    --output-wav output.wav
-```
-
-此範例說明：
-- `--prompt-language nan`：為提示文字加上台語標記
-- `--add-end-silence`：防止語音提前結束
-- `--prompt-start-silence 0.3`：在提示音檔開頭加入 0.3 秒靜音
-- `--prompt-end-silence 0.3`：在提示音檔結尾加入 0.3 秒靜音
-
-### 範例 5：使用交叉淡化減少音訊雜訊
-
-當音訊片段接合處有明顯的爆音或不連續感時：
-
-```bash
-python3 main.py \
-    --input-text "這是一段測試文本。包含多個句子。每句會獨立生成。" \
-    --prompt-voice-path ./samples/voice.wav \
-    --prompt-voice-text "我是一個提示音檔的範例內容。" \
-    --audio-basename "crossfade_test" \
-    --language zh \
     --crossfade-duration 0.05 \
     --crossfade-curve hsin \
-```
-
-此範例說明：
-- `--crossfade-duration 0.05`：設定 50 毫秒的交叉淡化時長（建議範圍：0.03-0.1 秒）
-- `--crossfade-curve hsin`：使用半正弦曲線進行淡入淡出，聽感較為自然
-- 若要禁用交叉淡化，可設定 `--crossfade-duration 0`
-
-### 範例 6：使用平行請求加速生成
-
-當需要處理大量句子時，可使用平行請求加速：
-
-```bash
-python3 main.py \
-    --input-text "這是第一句。這是第二句。這是第三句。這是第四句。這是第五句。" \
-    --prompt-voice-path ./samples/voice.wav \
-    --prompt-voice-text "我是一個提示音檔的範例內容。" \
-    --audio-basename "parallel_test" \
-    --language zh \
-    --max-parallel 3 \
-    --max-retries 5 \
-    --retry-base-delay 2.0 \
-    --output-dir output \
-    --output-wav output.wav
-```
-
-此範例說明：
-- `--max-parallel 3`：同時發送最多 3 個 TTS 請求
-- `--max-retries 5`：失敗時最多重試 5 次
-- `--retry-base-delay 2.0`：重試延遲序列為 2s → 4s → 8s → 16s → 32s
-
-### 使用 run.sh 腳本
-
-您也可以編輯 `run.sh` 腳本來設定參數，然後執行：
-
-```bash
-bash run.sh
+    --max-parallel 5
 ```
 
 ## 工作流程
