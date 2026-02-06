@@ -117,7 +117,7 @@ def generate_audio_with_retry(
 
             duration = get_wav_duration(tts_speech)
             print(f"[OK] {utt_id}: Generated {duration:.2f}s")
-            return (utt_id, sentence, output_path, True, "generated")
+            return (utt_id, sentence, output_path, True, "generated", duration)
 
         except Exception as e:
             last_error = str(e)
@@ -129,6 +129,7 @@ def generate_audio_with_retry(
         output_path,
         False,
         f"Failed after {max_retries + 1} attempts: {last_error}",
+        0.0,
     )
 
 

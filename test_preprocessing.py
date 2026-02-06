@@ -1,14 +1,15 @@
 """Tests for preprocessing.py balance_segments functionality."""
 
 import pytest
+
 from preprocessing import (
-    count_tokens,
-    force_split_by_char,
-    ensure_max_tokens,
+    SEGMENT_MODE_SENTENCE,
     balance_segments,
+    count_tokens,
+    ensure_max_tokens,
+    force_split_by_char,
     split_sentences,
     strip_punctuation,
-    SEGMENT_MODE_SENTENCE,
 )
 
 # Test fixture from user
@@ -162,7 +163,9 @@ class TestSplitSentences:
             avg = sum(token_counts) / len(token_counts)
             # No segment should be less than 30% of average (except possibly last)
             for i, tokens in enumerate(token_counts[:-1]):
-                assert tokens >= avg * 0.3, f"Segment {i} is unbalanced: {tokens} vs avg {avg}"
+                assert tokens >= avg * 0.3, (
+                    f"Segment {i} is unbalanced: {tokens} vs avg {avg}"
+                )
 
     def test_reconstructs_content(self):
         """All original content is preserved (punctuation aside)."""
@@ -171,6 +174,7 @@ class TestSplitSentences:
         )
         # Join results and compare character count (excluding punctuation)
         import re
+
         original_chars = re.sub(r"[。.？?！!，,、；;\s]", "", FIXTURE)
         result_chars = re.sub(r"[。.？?！!，,、；;\s]", "", "".join(result))
         assert original_chars == result_chars
@@ -212,9 +216,12 @@ class TestPunctuationInSplitSentences:
             FIXTURE, mode=SEGMENT_MODE_SENTENCE, min_tokens=60, max_tokens=80
         )
         import re
-        leading_punct = r'^[。.？?！!，,、；;：:「」『』（）()\[\]【】]'
+
+        leading_punct = r"^[。.？?！!，,、；;：:「」『』（）()\[\]【】]"
         for i, seg in enumerate(result):
-            assert not re.match(leading_punct, seg), f"Segment {i} starts with punctuation: {seg[:20]}"
+            assert not re.match(leading_punct, seg), (
+                f"Segment {i} starts with punctuation: {seg[:20]}"
+            )
 
     def test_no_trailing_comma(self):
         """No segment should end with comma-type punctuation."""
@@ -222,17 +229,23 @@ class TestPunctuationInSplitSentences:
             FIXTURE, mode=SEGMENT_MODE_SENTENCE, min_tokens=60, max_tokens=80
         )
         import re
-        trailing_comma = r'[，,、；;：:「」『』（）()\[\]【】]$'
+
+        trailing_comma = r"[，,、；;：:「」『』（）()\[\]【】]$"
         for i, seg in enumerate(result):
-            assert not re.search(trailing_comma, seg), f"Segment {i} ends with comma: {seg[-20:]}"
+            assert not re.search(trailing_comma, seg), (
+                f"Segment {i} ends with comma: {seg[-20:]}"
+            )
 
     def test_preserves_sentence_ending(self):
         """Sentence-ending punctuation should be preserved where appropriate."""
         text = "第一句。第二句！第三句？"
-        result = split_sentences(text, mode=SEGMENT_MODE_SENTENCE, min_tokens=5, max_tokens=20)
+        result = split_sentences(
+            text, mode=SEGMENT_MODE_SENTENCE, min_tokens=5, max_tokens=20
+        )
         # At least some segments should end with sentence-ending punctuation
         import re
-        sentence_endings = sum(1 for seg in result if re.search(r'[。！？]$', seg))
+
+        sentence_endings = sum(1 for seg in result if re.search(r"[。！？]$", seg))
         assert sentence_endings > 0, "No sentence endings preserved"
 
 
@@ -242,21 +255,27 @@ class TestEdgeCases:
     def test_single_long_sentence(self):
         """Single sentence longer than max_tokens gets split."""
         text = "這是一個非常非常長的句子" + "，很長" * 20
-        result = split_sentences(text, mode=SEGMENT_MODE_SENTENCE, min_tokens=60, max_tokens=80)
+        result = split_sentences(
+            text, mode=SEGMENT_MODE_SENTENCE, min_tokens=60, max_tokens=80
+        )
         for seg in result:
             assert count_tokens(seg) <= 80
 
     def test_all_short_sentences(self):
         """Many short sentences get merged appropriately."""
         text = "一。二。三。四。五。六。七。八。九。十。"
-        result = split_sentences(text, mode=SEGMENT_MODE_SENTENCE, min_tokens=60, max_tokens=80)
+        result = split_sentences(
+            text, mode=SEGMENT_MODE_SENTENCE, min_tokens=60, max_tokens=80
+        )
         # Should merge into fewer segments
         assert len(result) < 10
 
     def test_mixed_lengths(self):
         """Mix of short and long sentences handled correctly."""
         text = "短。" + "這是一個較長的句子包含很多字元" * 3 + "。短。"
-        result = split_sentences(text, mode=SEGMENT_MODE_SENTENCE, min_tokens=60, max_tokens=80)
+        result = split_sentences(
+            text, mode=SEGMENT_MODE_SENTENCE, min_tokens=60, max_tokens=80
+        )
         for seg in result:
             assert count_tokens(seg) <= 80
 
