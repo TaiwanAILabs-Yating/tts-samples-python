@@ -1,17 +1,20 @@
-import requests
 import os
 import subprocess
 import tempfile
+import threading
 from urllib.parse import urlparse
+
+import requests
 
 # Environment: dev, stg2, prod
 ENV = os.getenv("ENV", "dev")
 
 API_KEY = os.getenv("API_KEY", "fedgpt-api-key")
-ZEROSHOT_API_URL = os.getenv("API_URL", "https://ent.fedgpt.cc/api/asura/v1/speeches:zero-shot")
+ZEROSHOT_API_URL = os.getenv(
+    "API_URL", "https://ent.fedgpt.cc/api/asura/v1/speeches:zero-shot"
+)
 PRESIGN_URL = os.getenv(
-    "PRESIGN_URL",
-    "https://ent.fedgpt.cc/api/asura/v1/transcriptions:presign"
+    "PRESIGN_URL", "https://ent.fedgpt.cc/api/asura/v1/transcriptions:presign"
 )
 UPLOAD_URL = os.getenv("UPLOAD_URL", "https://ent.fedgpt.cc/asset/")
 
@@ -23,6 +26,7 @@ AUTH_SECRET = os.getenv("AUTH_SECRET", "")
 
 # Token cache
 _cached_token = None
+_token_lock = threading.Lock()
 
 
 def _is_prod_environment() -> bool:
@@ -37,33 +41,31 @@ def _get_base_url(url: str) -> str:
 
 
 def _login_for_token(base_url: str) -> str:
-    """Obtain X-Access-Token from prod login API."""
+    """Obtain X-Access-Token from prod login API (thread-safe)."""
     global _cached_token
 
-    if _cached_token is not None:
-        return _cached_token
+    with _token_lock:
+        # Check with lock (prevent duplicate login)
+        if _cached_token is not None:
+            return _cached_token
 
-    login_url = f"{base_url}/api/auth/v2/fedgpt/login"
-    payload = {
-        "authKey": AUTH_KEY,
-        "authSecret": AUTH_SECRET
-    }
-    headers = {
-        "accept": "application/json",
-        "Content-Type": "application/json"
-    }
+        login_url = f"{base_url}/api/auth/v2/fedgpt/login"
+        payload = {"authKey": AUTH_KEY, "authSecret": AUTH_SECRET}
+        headers = {"accept": "application/json", "Content-Type": "application/json"}
 
-    response = requests.post(login_url, headers=headers, json=payload)
+        response = requests.post(login_url, headers=headers, json=payload)
 
-    if response.status_code != 200:
-        raise Exception(f"Login failed with status code {response.status_code}: {response.text}")
+        if response.status_code != 200:
+            raise Exception(
+                f"Login failed with status code {response.status_code}: {response.text}"
+            )
 
-    token = response.json().get("token")
-    if not token:
-        raise Exception(f"No token in login response: {response.text}")
+        token = response.json().get("token")
+        if not token:
+            raise Exception(f"No token in login response: {response.text}")
 
-    _cached_token = token
-    return token
+        _cached_token = token
+        return token
 
 
 def _get_auth_headers(api_url: str) -> dict:
@@ -77,9 +79,11 @@ def _get_auth_headers(api_url: str) -> dict:
 
 
 def clear_token_cache():
-    """Clear the cached token (useful if token expires)."""
+    """Clear the cached token (thread-safe)."""
     global _cached_token
-    _cached_token = None
+    with _token_lock:
+        _cached_token = None
+
 
 END_SILENCE_TOKEN = "<|sil_200ms|>"
 
@@ -95,7 +99,7 @@ def send_zero_shot_request(
 ) -> bytes:
     headers = {
         **_get_auth_headers(ZEROSHOT_API_URL),
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     if language is not None:
@@ -115,7 +119,7 @@ def send_zero_shot_request(
             "promptVoiceAssetKey": prompt_voice_asset_key,
             "promptText": prompt_voice_text,
         },
-        "modelConfig":{
+        "modelConfig": {
             "model": MODEL_ID,
         },
         "audioConfig": {
@@ -130,33 +134,31 @@ def send_zero_shot_request(
     if response.status_code == 200:
         return response.content
     print(f"Request failed with status code {response.status_code}: {response.text}")
-    raise Exception(f"Request failed with status code {response.status_code}: {response.text}")
-
+    raise Exception(
+        f"Request failed with status code {response.status_code}: {response.text}"
+    )
 
 
 def presign(content_type: str) -> tuple[str, dict[str, str]]:
-
     presign_headers = {
         **_get_auth_headers(PRESIGN_URL),
     }
-    presign_payload = {
-        "contentType": content_type
-    }
+    presign_payload = {"contentType": content_type}
 
     presign_response = requests.post(
-        PRESIGN_URL,
-        headers=presign_headers,
-        json=presign_payload
+        PRESIGN_URL, headers=presign_headers, json=presign_payload
     )
 
     if presign_response.status_code != 200:
-        raise Exception(f"Presign request failed with status code {presign_response.status_code}: {presign_response.text}")
-
+        raise Exception(
+            f"Presign request failed with status code {presign_response.status_code}: {presign_response.text}"
+        )
 
     asset_key = presign_response.json().get("assetKey", "")
     form_data = presign_response.json().get("formData", {})
     print(f"Presigned asset key: {asset_key}")
     return asset_key, form_data
+
 
 def pad_audio_with_silence(
     input_path: str,
@@ -185,18 +187,15 @@ def pad_audio_with_silence(
     # Build ffmpeg filter for padding
     filters = []
     if start_silence_sec > 0.0:
-        filters.append(f"adelay={int(start_silence_sec * 1000)}|{int(start_silence_sec * 1000)}")
+        filters.append(
+            f"adelay={int(start_silence_sec * 1000)}|{int(start_silence_sec * 1000)}"
+        )
     if end_silence_sec > 0.0:
         filters.append(f"apad=pad_dur={end_silence_sec}")
 
     filter_str = ",".join(filters)
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", input_path,
-        "-af", filter_str,
-        temp_path
-    ]
+    cmd = ["ffmpeg", "-y", "-i", input_path, "-af", filter_str, temp_path]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -230,14 +229,14 @@ def upload_prompt_voice(
         asset_key, form_data = presign(content_type)
         file_name = os.path.basename(file_path)
 
-        files=[
-            ('file',(file_name,open(padded_path,'rb'), content_type))
-        ]
+        files = [("file", (file_name, open(padded_path, "rb"), content_type))]
 
         response = requests.post(UPLOAD_URL, data=form_data, files=files)
 
         if response.status_code != 204:
-            raise Exception(f"Upload request failed with status code {response.status_code}: {response.text}")
+            raise Exception(
+                f"Upload request failed with status code {response.status_code}: {response.text}"
+            )
 
         return asset_key
     finally:
