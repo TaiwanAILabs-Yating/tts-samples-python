@@ -9,7 +9,9 @@ from typing import Tuple
 from client import send_zero_shot_request, upload_prompt_voice
 from preprocessing import (
     SEGMENT_MODE_CLAUSE,
+    SEGMENT_MODE_RAW,
     SEGMENT_MODE_SENTENCE,
+    count_tokens,
     generate_utt_id,
     preprocess_text,
     split_sentences,
@@ -236,8 +238,18 @@ def main(args) -> None:
     print("[STEP 2] Splitting into sentences...")
     segment_mode = args.segment_mode if args.segment_mode else SEGMENT_MODE_SENTENCE
     print(f"[INFO] Segmentation mode: {segment_mode}")
-    sentences = split_sentences(text, mode=segment_mode)
+    min_tokens = args.min_tokens
+    max_tokens = args.max_tokens
+    print(f"[INFO] Token limits: min={min_tokens}, max={max_tokens}")
+    sentences = split_sentences(
+        text, mode=segment_mode, min_tokens=min_tokens, max_tokens=max_tokens
+    )
     print(f"[INFO] Found {len(sentences)} sentences")
+    for i, sent in enumerate(sentences):
+        tokens = count_tokens(sent)
+        print(
+            f"[INFO] Segment {i}: {tokens} tokens - {sent[:30]}{'...' if len(sent) > 30 else ''}"
+        )
 
     # Step 3: Generate audio for each sentence
     print("\n[STEP 3] Generating audio...")
@@ -354,9 +366,21 @@ if __name__ == "__main__":
     parser.add_argument(
         "--segment-mode",
         type=str,
-        choices=[SEGMENT_MODE_SENTENCE, SEGMENT_MODE_CLAUSE],
+        choices=[SEGMENT_MODE_RAW, SEGMENT_MODE_SENTENCE, SEGMENT_MODE_CLAUSE],
         default=SEGMENT_MODE_SENTENCE,
-        help="Segmentation mode: 'sentence' (split on 。.？！?!) or 'clause' (split on 。.？！?!，,、；;)",
+        help="Segmentation mode: 'raw' (no splitting), 'sentence' (split on 。.？！?!), 'clause' (split on 。.？！?!，,、；;)",
+    )
+    parser.add_argument(
+        "--min-tokens",
+        type=int,
+        default=10,
+        help="Soft minimum tokens per segment in sentence mode (default: 10)",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=40,
+        help="Hard maximum tokens per segment in sentence mode (default: 40)",
     )
     # End silence token
     parser.add_argument(
