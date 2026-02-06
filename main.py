@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 
+import io
 import os
 import subprocess
 import wave
-import io
 from typing import Tuple
+
 from client import send_zero_shot_request, upload_prompt_voice
-from preprocessing import preprocess_text, split_sentences, generate_utt_id, SEGMENT_MODE_SENTENCE, SEGMENT_MODE_CLAUSE
+from preprocessing import (
+    SEGMENT_MODE_CLAUSE,
+    SEGMENT_MODE_SENTENCE,
+    generate_utt_id,
+    preprocess_text,
+    split_sentences,
+)
 
 
 def get_wav_duration(wav_bytes: bytes) -> float:
@@ -17,12 +24,12 @@ def get_wav_duration(wav_bytes: bytes) -> float:
     values (0xFFFFFFFF) for data size.
     """
     # Find 'data' chunk marker to locate where audio data starts
-    data_pos = wav_bytes.find(b'data')
+    data_pos = wav_bytes.find(b"data")
     if data_pos == -1:
         raise ValueError("Invalid WAV file: no data chunk found")
 
     # Get format info from wave module (sample rate, channels, sample width)
-    with wave.open(io.BytesIO(wav_bytes), 'rb') as wav_file:
+    with wave.open(io.BytesIO(wav_bytes), "rb") as wav_file:
         sample_rate = wav_file.getframerate()
         n_channels = wav_file.getnchannels()
         sample_width = wav_file.getsampwidth()  # bytes per sample
@@ -44,7 +51,7 @@ def generate_audio(
     sentence: str,
     prompt_voice_text: str,
     prompt_voice_asset_key: str,
-    prompt_voice_url: str ="",
+    prompt_voice_url: str = "",
     language: str = None,
     prompt_language: str = None,
     add_end_silence: bool = False,
@@ -82,7 +89,7 @@ def generate_audio(
         )
 
         # Save to WAV file
-        with open(output_path, 'wb') as f:
+        with open(output_path, "wb") as f:
             f.write(tts_speech)
 
         duration = get_wav_duration(tts_speech)
@@ -94,25 +101,101 @@ def generate_audio(
         return (utt_id, sentence, output_path, False, str(e))
 
 
-
 def concat_wavs_ffmpeg(output_path: str, audio_paths: list[str]):
     list_file = "list.txt"
     with open(list_file, "w") as f:
         for p in audio_paths:
             f.write(f"file '{p}'\n")
 
-    subprocess.run([
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            list_file,
+            "-c",
+            "copy",
+            output_path,
+        ],
+        check=True,
+    )
+
+
+def concat_wavs_with_crossfade(
+    output_path: str,
+    audio_paths: list[str],
+    crossfade_duration: float = 0.05,
+    fade_curve: str = "tri",
+) -> None:
+    """
+    Concatenate WAV files with crossfade to eliminate clicking/popping.
+
+    Args:
+        output_path: Path for the output WAV file
+        audio_paths: List of input WAV file paths
+        crossfade_duration: Duration of crossfade in seconds (default: 50ms)
+        fade_curve: Fade curve type for crossfade (default: "tri" = linear)
+    """
+    if not audio_paths:
+        raise ValueError("No audio files to concatenate")
+
+    if len(audio_paths) == 1:
+        import shutil
+
+        shutil.copy(audio_paths[0], output_path)
+        return
+
+    # Build input arguments
+    input_args = []
+    for path in audio_paths:
+        input_args.extend(["-i", path])
+
+    # Build filter complex for crossfading
+    if len(audio_paths) == 2:
+        # Simple case: two files
+        filter_complex = (
+            f"[0][1]acrossfade=d={crossfade_duration}:c1={fade_curve}:c2={fade_curve}"
+        )
+    else:
+        # Multiple files: chain crossfades
+        filters = []
+        for i in range(len(audio_paths) - 1):
+            if i == 0:
+                # First pair: [0][1] -> [a0]
+                filters.append(
+                    f"[0][1]acrossfade=d={crossfade_duration}:c1={fade_curve}:c2={fade_curve}[a0]"
+                )
+            elif i == len(audio_paths) - 2:
+                # Last pair: [a{i-1}][{i+1}] -> final output (no label)
+                filters.append(
+                    f"[a{i - 1}][{i + 1}]acrossfade=d={crossfade_duration}:c1={fade_curve}:c2={fade_curve}"
+                )
+            else:
+                # Middle pairs: [a{i-1}][{i+1}] -> [a{i}]
+                filters.append(
+                    f"[a{i - 1}][{i + 1}]acrossfade=d={crossfade_duration}:c1={fade_curve}:c2={fade_curve}[a{i}]"
+                )
+        filter_complex = ";".join(filters)
+
+    cmd = [
         "ffmpeg",
-        "-f", "concat",
-        "-safe", "0",
-        "-i", list_file,
-        "-c", "copy",
-        output_path
-    ], check=True)
+        "-y",
+        *input_args,
+        "-filter_complex",
+        filter_complex,
+        output_path,
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"FFmpeg crossfade failed: {result.stderr}")
 
 
 def main(args) -> None:
-
     print(f"[INFO] Input text: {args.input_text}")
     print(f"[INFO] Utterance ID basename: {args.audio_basename}")
 
@@ -134,7 +217,9 @@ def main(args) -> None:
     start_silence = args.prompt_start_silence if args.prompt_start_silence else 0.0
     end_silence = args.prompt_end_silence if args.prompt_end_silence else 0.0
     if start_silence > 0.0 or end_silence > 0.0:
-        print(f"[INFO] Padding prompt audio: start={start_silence}s, end={end_silence}s")
+        print(
+            f"[INFO] Padding prompt audio: start={start_silence}s, end={end_silence}s"
+        )
     asset_key = upload_prompt_voice(
         file_path=args.prompt_voice_path,
         start_silence_sec=start_silence,
@@ -168,7 +253,6 @@ def main(args) -> None:
         )
         utterances.append(result)
 
-
     # Summary of generation
     successful = sum(1 for _, _, _, succ, _ in utterances if succ)
     failed = len(utterances) - successful
@@ -181,17 +265,28 @@ def main(args) -> None:
     audio_paths = [path for _, _, path, succ, _ in utterances if succ]
 
     if audio_paths:
-        concat_wavs_ffmpeg(args.output_wav, audio_paths)
+        if args.crossfade_duration > 0:
+            print(
+                f"[INFO] Using crossfade: duration={args.crossfade_duration}s, curve={args.crossfade_curve}"
+            )
+            concat_wavs_with_crossfade(
+                args.output_wav,
+                audio_paths,
+                crossfade_duration=args.crossfade_duration,
+                fade_curve=args.crossfade_curve,
+            )
+        else:
+            concat_wavs_ffmpeg(args.output_wav, audio_paths)
         print(f"[OK] Concatenated audio saved: {args.output_wav}")
     else:
         print("[WARNING] No audio files to concatenate")
-
 
     print("\n[DONE] Batch TTS generation complete!")
 
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-text", type=str)
     parser.add_argument("--prompt-voice-text", type=str)
@@ -204,7 +299,7 @@ if __name__ == "__main__":
         "--prompt-language",
         type=str,
         default=None,
-        help="Language tag for prompt text (e.g., 'zh', 'nan', 'en'). Adds <|{lang}|> before prompt text"
+        help="Language tag for prompt text (e.g., 'zh', 'nan', 'en'). Adds <|{lang}|> before prompt text",
     )
     # Sentence segmentation mode
     parser.add_argument(
@@ -212,26 +307,40 @@ if __name__ == "__main__":
         type=str,
         choices=[SEGMENT_MODE_SENTENCE, SEGMENT_MODE_CLAUSE],
         default=SEGMENT_MODE_SENTENCE,
-        help="Segmentation mode: 'sentence' (split on 。.？！?!) or 'clause' (split on 。.？！?!，,、；;)"
+        help="Segmentation mode: 'sentence' (split on 。.？！?!) or 'clause' (split on 。.？！?!，,、；;)",
     )
     # End silence token
     parser.add_argument(
         "--add-end-silence",
         action="store_true",
-        help="Add <|sil_200ms|> token at end of each sentence to prevent premature ending"
+        help="Add <|sil_200ms|> token at end of each sentence to prevent premature ending",
     )
     # Prompt audio silence padding
     parser.add_argument(
         "--prompt-start-silence",
         type=float,
         default=0.0,
-        help="Duration (seconds) of silence to pad at start of prompt audio (default: 0.0)"
+        help="Duration (seconds) of silence to pad at start of prompt audio (default: 0.0)",
     )
     parser.add_argument(
         "--prompt-end-silence",
         type=float,
         default=0.0,
-        help="Duration (seconds) of silence to pad at end of prompt audio (default: 0.0)"
+        help="Duration (seconds) of silence to pad at end of prompt audio (default: 0.0)",
+    )
+    # Crossfade options for reducing audio artifacts
+    parser.add_argument(
+        "--crossfade-duration",
+        type=float,
+        default=0.05,
+        help="Crossfade duration in seconds between audio segments (0 = disabled, recommended: 0.03-0.1)",
+    )
+    parser.add_argument(
+        "--crossfade-curve",
+        type=str,
+        default="hsin",
+        choices=["tri", "qsin", "hsin", "log", "exp"],
+        help="Crossfade curve type (default: hsin)",
     )
     args = parser.parse_args()
 

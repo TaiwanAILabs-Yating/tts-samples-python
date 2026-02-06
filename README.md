@@ -13,6 +13,7 @@ AILabs 基於 zero-shot 語音合成的批次文字轉語音工具，支援將�
 - 可選擇分句模式（句號分句或逗號分句）
 - 支援結尾靜音標記（防止語音提前結束）
 - 支援提示音檔靜音填充（改善語音品質）
+- 支援音訊片段交叉淡化（消除接合處的爆音/雜訊）
 
 ## 系統需求
 
@@ -61,6 +62,8 @@ python3 main.py \
 | `--add-end-silence` | flag | 否 | 在每句結尾加入 `<\|sil_200ms\|>` 靜音標記，防止語音提前結束 |
 | `--prompt-start-silence` | float | 否 | 在提示音檔開頭填充的靜音秒數（預設：0.0） |
 | `--prompt-end-silence` | float | 否 | 在提示音檔結尾填充的靜音秒數（預設：0.0） |
+| `--crossfade-duration` | float | 否 | 音訊片段間的交叉淡化時長（秒），0 表示禁用（預設：0.05） |
+| `--crossfade-curve` | string | 否 | 交叉淡化曲線類型：`tri`（線性）、`qsin`、`hsin`（預設）、`log`、`exp` |
 
 ## 使用範例
 
@@ -121,6 +124,7 @@ python3 main.py \
     --add-end-silence \
     --prompt-start-silence 0.3 \
     --prompt-end-silence 0.3 \
+    --segment-mode clause \
     --output-dir output \
     --output-wav output.wav
 ```
@@ -130,6 +134,28 @@ python3 main.py \
 - `--add-end-silence`：防止語音提前結束
 - `--prompt-start-silence 0.3`：在提示音檔開頭加入 0.3 秒靜音
 - `--prompt-end-silence 0.3`：在提示音檔結尾加入 0.3 秒靜音
+
+### 範例 5：使用交叉淡化減少音訊雜訊
+
+當音訊片段接合處有明顯的爆音或不連續感時：
+
+```bash
+python3 main.py \
+    --input-text "這是一段測試文本。包含多個句子。每句會獨立生成。" \
+    --prompt-voice-path ./samples/voice.wav \
+    --prompt-voice-text "我是一個提示音檔的範例內容。" \
+    --audio-basename "crossfade_test" \
+    --language zh \
+    --crossfade-duration 0.05 \
+    --crossfade-curve hsin \
+    --output-dir output \
+    --output-wav output.wav
+```
+
+此範例說明：
+- `--crossfade-duration 0.05`：設定 50 毫秒的交叉淡化時長（建議範圍：0.03-0.1 秒）
+- `--crossfade-curve hsin`：使用半正弦曲線進行淡入淡出，聽感較為自然
+- 若要禁用交叉淡化，可設定 `--crossfade-duration 0`
 
 ### 使用 run.sh 腳本
 
@@ -205,6 +231,16 @@ output.wav                       # 最終串接的完整音檔
 6. **語音品質調整**：
    - 若語音結尾有被截斷的情況，可使用 `--add-end-silence` 加入結尾靜音標記
    - 若提示音檔開頭或結尾太過突兀，可使用 `--prompt-start-silence` 和 `--prompt-end-silence` 填充靜音
+
+7. **交叉淡化設定**：
+   - 預設啟用交叉淡化（0.05 秒），可有效消除音訊片段接合處的爆音和雜訊
+   - 可用曲線類型：
+     - `tri`：線性淡入淡出
+     - `qsin`：四分之一正弦曲線
+     - `hsin`：半正弦曲線（預設，聽感最自然）
+     - `log`：對數曲線
+     - `exp`：指數曲線
+   - 建議時長範圍：0.03-0.1 秒，太短可能無法消除雜訊，太長可能導致音訊模糊
 
 ## 相關檔案
 
