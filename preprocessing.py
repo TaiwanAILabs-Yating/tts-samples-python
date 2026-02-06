@@ -25,9 +25,9 @@ SEGMENT_MODE_CLAUSE = "clause"  # Split on sentence + clause endings: 。.？！
 
 # Punctuation patterns for stripping
 # Leading: remove all punctuation from start
-LEADING_PUNCTUATION = r'^[。.？?！!，,、；;：:「」『』（）()\[\]【】\s]+'
+LEADING_PUNCTUATION = r"^[。.？?！!，,、；;：:「」『』（）()\[\]【】\s]+"
 # Trailing: only remove non-sentence-ending punctuation (keep 。！？)
-TRAILING_PUNCTUATION = r'[，,、；;：:「」『』（）()\[\]【】\s]+$'
+TRAILING_PUNCTUATION = r"[，,、；;：:「」『』（）()\[\]【】\s]+$"
 
 
 def strip_punctuation(text: str) -> str:
@@ -37,8 +37,8 @@ def strip_punctuation(text: str) -> str:
     - Leading: remove all punctuation
     - Trailing: remove only non-sentence-ending punctuation (keep 。！？)
     """
-    text = re.sub(LEADING_PUNCTUATION, '', text)
-    text = re.sub(TRAILING_PUNCTUATION, '', text)
+    text = re.sub(LEADING_PUNCTUATION, "", text)
+    text = re.sub(TRAILING_PUNCTUATION, "", text)
     return text
 
 
@@ -197,8 +197,8 @@ def balance_segments(
 def split_sentences(
     text: str,
     mode: str = SEGMENT_MODE_SENTENCE,
-    min_tokens: int = 60,
-    max_tokens: int = 80,
+    min_tokens: int = 10,
+    max_tokens: int = 40,
 ) -> List[str]:
     """
     Split text into sentences based on:
@@ -211,8 +211,8 @@ def split_sentences(
             - "raw": No splitting, return text as-is
             - "sentence": Split on sentence ending marks only (。.？！?!)
             - "clause": Split on sentence + clause ending marks (。.？！?!，,、；;)
-        min_tokens: Soft minimum tokens per segment (default 60)
-        max_tokens: Hard maximum tokens per segment (default 80)
+        min_tokens: Soft minimum tokens per segment (default 10)
+        max_tokens: Hard maximum tokens per segment (default 40)
 
     Returns:
         List of sentences
