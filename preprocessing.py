@@ -125,7 +125,7 @@ def ensure_max_tokens(text: str, max_tokens: int) -> List[str]:
 
 
 def balance_segments(
-    segments: List[str], min_tokens: int = 60, max_tokens: int = 80
+    segments: List[str], min_tokens: int = 10, max_tokens: int = 40
 ) -> List[str]:
     """
     Balance segment token counts with hard max_tokens limit and soft min_tokens target.
@@ -137,8 +137,8 @@ def balance_segments(
 
     Args:
         segments: List of text segments to balance
-        min_tokens: Soft minimum tokens per segment (default 60)
-        max_tokens: Hard maximum tokens per segment (default 80)
+        min_tokens: Soft minimum tokens per segment (default 10)
+        max_tokens: Hard maximum tokens per segment (default 40)
 
     Returns:
         List of balanced segments, each guaranteed <= max_tokens
