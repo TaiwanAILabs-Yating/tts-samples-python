@@ -14,6 +14,8 @@ AILabs 基於 zero-shot 語音合成的批次文字轉語音工具，支援將�
 - 支援結尾靜音標記（防止語音提前結束）
 - 支援提示音檔靜音填充（改善語音品質）
 - 支援音訊片段交叉淡化（消除接合處的爆音/雜訊）
+- 支援平行請求（加速批次生成）
+- 自動重試機制（指數退避策略）
 
 ## 系統需求
 
@@ -104,6 +106,24 @@ python3 main.py \
 4. 貪心合併相鄰段落（若合併後 <= max_tokens）
 5. 處理過短的尾段（< min_tokens 則與前段合併）
 
+## 平行請求與重試機制
+
+| 參數 | 類型 | 預設值 | 說明 |
+|------|------|--------|------|
+| `--max-parallel` | int | `1` | 最大平行請求數（預設為循序執行） |
+| `--max-retries` | int | `3` | 失敗請求的最大重試次數 |
+| `--retry-base-delay` | float | `1.0` | 指數退避的基礎延遲秒數 |
+
+### 重試策略
+- 使用指數退避（Exponential Backoff）避免過度請求
+- 延遲計算：`base_delay * 2^(attempt-1)`
+- 預設延遲序列：1s → 2s → 4s
+
+### 平行執行說明
+- 使用 `ThreadPoolExecutor` 實作平行請求
+- 結果會按原始句子順序排列，確保音檔串接順序正確
+- 設定 `--max-parallel 1` 等同於循序執行
+
 ## 使用範例
 
 ### 範例 1：生成台語語音
@@ -187,14 +207,35 @@ python3 main.py \
     --language zh \
     --crossfade-duration 0.05 \
     --crossfade-curve hsin \
-    --output-dir output \
-    --output-wav output.wav
 ```
 
 此範例說明：
 - `--crossfade-duration 0.05`：設定 50 毫秒的交叉淡化時長（建議範圍：0.03-0.1 秒）
 - `--crossfade-curve hsin`：使用半正弦曲線進行淡入淡出，聽感較為自然
 - 若要禁用交叉淡化，可設定 `--crossfade-duration 0`
+
+### 範例 6：使用平行請求加速生成
+
+當需要處理大量句子時，可使用平行請求加速：
+
+```bash
+python3 main.py \
+    --input-text "這是第一句。這是第二句。這是第三句。這是第四句。這是第五句。" \
+    --prompt-voice-path ./samples/voice.wav \
+    --prompt-voice-text "我是一個提示音檔的範例內容。" \
+    --audio-basename "parallel_test" \
+    --language zh \
+    --max-parallel 3 \
+    --max-retries 5 \
+    --retry-base-delay 2.0 \
+    --output-dir output \
+    --output-wav output.wav
+```
+
+此範例說明：
+- `--max-parallel 3`：同時發送最多 3 個 TTS 請求
+- `--max-retries 5`：失敗時最多重試 5 次
+- `--retry-base-delay 2.0`：重試延遲序列為 2s → 4s → 8s → 16s → 32s
 
 ### 使用 run.sh 腳本
 
@@ -239,6 +280,7 @@ output.wav                       # 最終串接的完整音檔
 - `[GEN]`：正在生成語音
 - `[OK]`：成功生成
 - `[SKIP]`：跳過已存在的檔案
+- `[RETRY]`：正在重試失敗的請求
 - `[ERROR]`：生成失敗
 - `[SUMMARY]`：生成摘要統計
 
@@ -280,6 +322,10 @@ output.wav                       # 最終串接的完整音檔
      - `log`：對數曲線
      - `exp`：指數曲線
    - 建議時長範圍：0.03-0.1 秒，太短可能無法消除雜訊，太長可能導致音訊模糊
+8. **平行請求設定**：
+   - 建議根據 API 服務的限制調整 `--max-parallel` 數值
+   - 過高的平行數可能導致請求被限流或拒絕
+   - 重試機制會自動處理暫時性的網路錯誤或服務不可用
 
 ## 相關檔案
 
