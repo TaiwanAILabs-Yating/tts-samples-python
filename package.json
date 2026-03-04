@@ -7,6 +7,10 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.10",
+    "@ffmpeg/util": "^0.12.1"
+  },
   "devDependencies": {
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
