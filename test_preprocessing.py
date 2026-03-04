@@ -195,15 +195,16 @@ class TestStripPunctuation:
         assert strip_punctuation("你好、") == "你好"
         assert strip_punctuation("你好；") == "你好"
 
-    def test_keeps_trailing_sentence_ending(self):
-        """Trailing sentence-ending punctuation is kept."""
-        assert strip_punctuation("你好。") == "你好。"
+    def test_strips_period_keeps_exclamation_question(self):
+        """Trailing period is stripped, but ! and ? are kept."""
+        assert strip_punctuation("你好。") == "你好"
+        assert strip_punctuation("你好.") == "你好"
         assert strip_punctuation("你好！") == "你好！"
         assert strip_punctuation("你好？") == "你好？"
 
     def test_combined(self):
         """Both leading and trailing are handled correctly."""
-        assert strip_punctuation("，你好。") == "你好。"
+        assert strip_punctuation("，你好。") == "你好"
         assert strip_punctuation("、世界！") == "世界！"
 
 
@@ -236,17 +237,20 @@ class TestPunctuationInSplitSentences:
                 f"Segment {i} ends with comma: {seg[-20:]}"
             )
 
-    def test_preserves_sentence_ending(self):
-        """Sentence-ending punctuation should be preserved where appropriate."""
+    def test_preserves_exclamation_question_but_not_period(self):
+        """Exclamation/question marks preserved, period stripped."""
         text = "第一句。第二句！第三句？"
         result = split_sentences(
             text, mode=SEGMENT_MODE_SENTENCE, min_tokens=5, max_tokens=20
         )
-        # At least some segments should end with sentence-ending punctuation
         import re
 
-        sentence_endings = sum(1 for seg in result if re.search(r"[。！？]$", seg))
-        assert sentence_endings > 0, "No sentence endings preserved"
+        # Only ! and ? should be preserved, not period
+        excl_question = sum(1 for seg in result if re.search(r"[！？]$", seg))
+        assert excl_question > 0, "No exclamation/question endings preserved"
+        # No segment should end with period
+        period_endings = sum(1 for seg in result if re.search(r"[。.]$", seg))
+        assert period_endings == 0, "Segments should not end with period"
 
 
 class TestEdgeCases:
