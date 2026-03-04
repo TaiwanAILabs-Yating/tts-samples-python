@@ -12,9 +12,9 @@ export type SegmentMode =
 // Leading: remove all punctuation from start
 const LEADING_PUNCTUATION =
   /^[。.？?！!，,、；;：:「」『』（）()\[\]【】\s]+/;
-// Trailing: only remove non-sentence-ending punctuation (keep 。！？)
+// Trailing: remove punctuation including period (keep ！？)
 const TRAILING_PUNCTUATION =
-  /[，,、；;：:「」『』（）()\[\]【】\s]+$/;
+  /[。.，,、；;：:「」『』（）()\[\]【】\s]+$/;
 
 /**
  * Preprocess text by removing line number prefixes and joining lines.
@@ -37,7 +37,7 @@ export function preprocessText(text: string): string {
 /**
  * Strip punctuation from text edges.
  * - Leading: remove all punctuation
- * - Trailing: remove only non-sentence-ending punctuation (keep 。！？)
+ * - Trailing: remove punctuation including period (keep ！？)
  */
 export function stripPunctuation(text: string): string {
   text = text.replace(LEADING_PUNCTUATION, "");

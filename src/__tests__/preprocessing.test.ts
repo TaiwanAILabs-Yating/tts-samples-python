@@ -180,14 +180,15 @@ describe("stripPunctuation", () => {
     expect(stripPunctuation("你好；")).toBe("你好");
   });
 
-  it("keeps trailing sentence-ending punctuation", () => {
-    expect(stripPunctuation("你好。")).toBe("你好。");
+  it("strips period but keeps exclamation/question", () => {
+    expect(stripPunctuation("你好。")).toBe("你好");
+    expect(stripPunctuation("你好.")).toBe("你好");
     expect(stripPunctuation("你好！")).toBe("你好！");
     expect(stripPunctuation("你好？")).toBe("你好？");
   });
 
   it("handles both leading and trailing correctly", () => {
-    expect(stripPunctuation("，你好。")).toBe("你好。");
+    expect(stripPunctuation("，你好。")).toBe("你好");
     expect(stripPunctuation("、世界！")).toBe("世界！");
   });
 });
@@ -209,11 +210,15 @@ describe("punctuation in splitSentences", () => {
     }
   });
 
-  it("preserves sentence-ending punctuation", () => {
+  it("preserves exclamation/question but not period", () => {
     const text = "第一句。第二句！第三句？";
     const result = splitSentences(text, SEGMENT_MODE_SENTENCE, 5, 20);
-    const sentenceEndings = result.filter((seg) => /[。！？]$/.test(seg));
-    expect(sentenceEndings.length).toBeGreaterThan(0);
+    // ! and ? should be preserved
+    const exclQuestion = result.filter((seg) => /[！？]$/.test(seg));
+    expect(exclQuestion.length).toBeGreaterThan(0);
+    // No segment should end with period
+    const periodEndings = result.filter((seg) => /[。.]$/.test(seg));
+    expect(periodEndings.length).toBe(0);
   });
 });
 
