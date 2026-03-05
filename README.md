@@ -237,9 +237,218 @@ output.wav                       # 最終串接的完整音檔
   - 使用 `--output-srt` 參數可同時生成 SRT 字幕檔案
   - 時間戳根據實際音訊長度自動計算，與音檔同步
 
-## 相關檔案
+## 相關檔案（Python CLI）
 
 - `main.py`：主程式
 - `client.py`：TTS API 客戶端
 - `preprocessing.py`：文本預處理與分句模組
 - `run.sh`：執行腳本範例
+
+---
+
+## Web UI（前端介面）
+
+瀏覽器端的 TTS 語音合成工具，提供完整的語音生成、審核、匯出流程。所有音訊處理（串接、交叉淡化）皆在瀏覽器內完成，無需後端 FFmpeg。
+
+### 功能總覽
+
+- 拖放上傳 prompt voice，即時試聽
+- 文字直接輸入或上傳 `.txt` 檔案（支援 Kaldi 格式）
+- 分段預覽：生成前可預覽文字如何切分為 segments
+- 平行語音生成，含自動重試（指數退避）
+- 波形視覺化播放器，支援 segment 色彩標記、zoom、速度調整
+- 逐句審核（Approve / Reject）+ Notes 筆記
+- 單句下載 WAV 或批次匯出 ZIP（含 metadata.json）
+- 鍵盤快捷鍵加速審核流程
+- 音訊交叉淡化串接（FFmpeg.wasm，瀏覽器端）
+- SRT 字幕自動生成
+
+### 技術棧
+
+| 類別 | 技術 | 版本 |
+|------|------|------|
+| Framework | React | 19 |
+| Language | TypeScript | 5.x |
+| Build | Vite | 7.3 |
+| Styling | Tailwind CSS | 4.x |
+| State | Zustand | 5.x |
+| Routing | React Router DOM | 7.x |
+| Audio | FFmpeg.wasm | 0.12 |
+| Testing | Vitest | 3.x |
+
+### 環境變數
+
+在專案根目錄建立 `.env` 檔案：
+
+| 變數 | 說明 | 預設值 |
+|------|------|--------|
+| `VITE_ENV` | 環境（dev / stg2 / prod） | `dev` |
+| `VITE_ZERO_SHOT_API_URL` | TTS API endpoint | `http://localhost:8000/api/v1/zero-shot` |
+| `VITE_PRESIGN_URL` | S3 presign endpoint | - |
+| `VITE_UPLOAD_URL` | Asset upload endpoint | - |
+| `VITE_API_KEY` | API key（dev / stg2 環境） | - |
+| `VITE_AUTH_KEY` | Auth key（prod 環境） | - |
+| `VITE_AUTH_SECRET` | Auth secret（prod 環境） | - |
+| `VITE_MODEL_ID` | 預設模型 ID（可由 UI 下拉選單覆蓋） | `MasterZhengyanKaishi` |
+
+
+### 快速啟動
+
+```bash
+# 安裝依賴
+npm install
+
+# 開發伺服器（含 FFmpeg.wasm 所需的 CORS headers）
+npm run dev
+```
+
+### 使用流程
+
+#### Step 1：Setup Page — 建立專案
+
+1. **上傳 Prompt Voice**
+   - 拖放或點擊上傳 WAV / MP3 音檔（建議 3-10 秒）
+   - 可即時試聽已上傳的音檔
+   - 選擇 Prompt 語言（國語 / 台語 / 英文）
+   - 輸入 Prompt 音檔對應的文字內容
+
+2. **輸入文字**（兩種模式）
+
+   **直接輸入模式：**
+   - 在文字框直接輸入或貼上文字
+   - 即時顯示字數與估算 token 數
+   - 適合單句或短文測試
+
+   **上傳檔案模式：**
+   - 拖放或選擇 `.txt` 檔案
+   - 支援兩種格式：
+     - **純文字格式**：每個非空行視為一個獨立句子
+     - **Kaldi 格式**：每行 `utterance_id 文字內容`（系統自動偵測，>80% 行符合 `^\S+\s+.+` 即判定為 Kaldi 格式）
+   - 上傳後顯示檔名、行數、檔案大小
+
+3. **設定參數**
+   - 目標語言：國語 / 台語 / 英文
+   - 模型選擇
+   - 分段模式：Raw（不分段）/ Sentence（句號分段）/ Clause（逗號分段）
+   - Token 範圍：Min / Max Token 滑桿
+
+4. **預覽分段** → 點擊「Create & Generate」或「Create Only」
+
+#### Step 2：Workspace Page — 生成與審核
+
+1. **生成語音**
+   - 「Generate All」一次生成所有句子
+   - 或逐句點擊生成
+   - 平行執行（可設定並行數），失敗自動重試
+
+2. **波形播放器**
+   - 色彩標記各 segment 區段
+   - 支援 zoom（0.5x - 4x）、播放速度（0.5x - 2x）、音量控制
+   - 點擊波形跳轉至指定位置
+
+3. **Segment 編輯**
+   - 點擊 segment 文字進入編輯模式
+   - 修改後可單獨重新生成該 segment
+   - 或「Regenerate Sentence」重新生成整句
+
+4. **審核**
+   - 每句可 Approve（通過）或 Reject（退回）
+   - 下方 Notes 欄位可記錄觀察（發音問題、斷句不佳等）
+   - 「Approve All」可批次通過所有已生成的句子
+
+#### Step 3：匯出
+
+- **單句下載**：Approve 後點擊 Download 按鈕，下載 WAV
+- **批次匯出 ZIP**（兩種模式）：
+  - **Audio + Metadata**（預設）：所有 Approved 句子的 WAV + `metadata.json`
+  - **Audio Only**：僅 WAV 檔案
+
+### 鍵盤快捷鍵
+
+在 Workspace 頁面中（不在文字輸入框時）：
+
+| 按鍵 | 功能 |
+|------|------|
+| `Space` | 播放 / 暫停 |
+| `[` | 上一個 segment |
+| `]` | 下一個 segment |
+| `↑` | 上一句 |
+| `↓` | 下一句 |
+| `A` | Approve 當前句子 |
+| `R` | Reject 當前句子 |
+
+### 進階設定
+
+點擊齒輪圖示開啟設定面板：
+
+| 區塊 | 設定項 |
+|------|--------|
+| 音訊生成 | 結尾靜音 token、平行 workers（1-20）、最大重試次數（0-10）、重試延遲（0.1-5s） |
+| 靜音填充 | 開頭靜音（0-1s）、結尾靜音（0-1s） |
+| 交叉淡化 | 時長（0-0.2s）、曲線類型（tri / qsin / hsin / log / exp） |
+| SRT 字幕 | 啟用 / 停用 SRT 生成 |
+
+### 問題回報流程
+
+當遇到語音品質問題（發音錯誤、斷句不佳、語調異常等）時：
+
+1. **在 Workspace 中標記問題**
+   - 對有問題的句子點擊 Reject
+   - 在句子下方的 Notes 欄位詳細描述問題（例如：「第 2 個 segment 發音不自然」「斷句位置不對」）
+
+2. **匯出含 Metadata 的 ZIP**
+   - 在 Sidebar 底部點擊「Download Approved」旁的下拉選單
+   - 選擇「**Audio + Metadata**」模式匯出
+   - ZIP 內的 `metadata.json` 包含：
+     - 完整的生成參數（語言、模型、分段模式等）
+     - 每句的 status（approved / rejected）
+     - 每句的 Notes 內容
+     - Segment 數量與音訊時長
+
+3. **回報問題**
+   - **請將整包 ZIP 傳回給我們**（包含音檔 + metadata.json）
+   - metadata.json 中的參數快照讓我們可以完整重現您的生成情境
+   - Notes 中的描述幫助我們定位具體問題
+
+### 前端專案結構
+
+```
+src/
+├── main.tsx                 # 應用入口（BrowserRouter）
+├── App.tsx                  # 路由定義
+├── index.css                # 全域主題變數（Tailwind CSS）
+│
+├── pages/
+│   ├── SetupPage.tsx        # 專案建立頁面
+│   └── WorkspacePage.tsx    # 語音生成 & 審核工作區
+│
+├── components/
+│   ├── TopNav.tsx           # 共用導航列
+│   ├── setup/               # Setup 頁面元件
+│   └── workspace/           # Workspace 頁面元件
+│
+├── hooks/
+│   ├── useGeneration.ts     # TTS 生成調度
+│   ├── useAudioPlayer.ts    # Web Audio API 播放控制
+│   └── useKeyboardShortcuts.ts  # 鍵盤快捷鍵
+│
+├── services/
+│   ├── tts-orchestrator.ts  # 完整 pipeline 串接
+│   ├── tts-client.ts        # TTS API HTTP 客戶端
+│   ├── batch-generator.ts   # 重試 + 平行執行
+│   ├── ffmpeg-service.ts    # FFmpeg.wasm 音訊處理
+│   └── auth.ts              # API 認證
+│
+├── stores/
+│   └── project-store.ts     # Zustand 全域狀態
+│
+├── utils/
+│   ├── preprocessing.ts     # 文字分段 & token 計算
+│   ├── audio.ts             # WAV 解析
+│   └── srt.ts               # SRT 字幕生成
+│
+└── config/
+    └── index.ts             # 環境變數設定
+```
+
+詳細的前端文件請參考 `docs/frontend/` 目錄。
