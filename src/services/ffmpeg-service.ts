@@ -101,7 +101,7 @@ export async function padAudioWithSilence(
     ]);
 
     const data = await ffmpeg.readFile(outputFile);
-    return (data as Uint8Array).buffer;
+    return (data as Uint8Array).buffer as ArrayBuffer;
   } finally {
     await cleanupFiles(ffmpeg, [inputFile, outputFile]);
   }
@@ -187,7 +187,7 @@ export async function concatWavsWithCrossfade(
     ]);
 
     const data = await ffmpeg.readFile(outputFile);
-    return (data as Uint8Array).buffer;
+    return (data as Uint8Array).buffer as ArrayBuffer;
   } finally {
     await cleanupFiles(ffmpeg, [...inputFiles, outputFile]);
   }
