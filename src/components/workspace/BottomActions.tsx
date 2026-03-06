@@ -2,9 +2,10 @@ import { useProjectStore } from "../../stores/project-store.ts";
 
 interface BottomActionsProps {
   onRegenerateSentence: (sentenceIndex: number) => void;
+  isSegmentRegenerating?: boolean;
 }
 
-export function BottomActions({ onRegenerateSentence }: BottomActionsProps) {
+export function BottomActions({ onRegenerateSentence, isSegmentRegenerating }: BottomActionsProps) {
   const sentences = useProjectStore((s) => s.sentences);
   const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
 
@@ -12,14 +13,15 @@ export function BottomActions({ onRegenerateSentence }: BottomActionsProps) {
   if (!sentence) return null;
 
   const isGenerating = sentence.status === "generating";
+  const isDisabled = isGenerating || !sentence.pipeline || !!isSegmentRegenerating;
 
   return (
     <div className="flex items-center">
       <button
         onClick={() => onRegenerateSentence(selectedIndex)}
-        disabled={isGenerating || !sentence.pipeline}
+        disabled={isDisabled}
         className={`flex items-center gap-1.5 text-[13px] font-medium text-text-primary px-4 py-2 rounded-md border border-border-secondary transition-colors ${
-          isGenerating || !sentence.pipeline
+          isDisabled
             ? "opacity-50 cursor-not-allowed"
             : "hover:bg-bg-tertiary"
         }`}

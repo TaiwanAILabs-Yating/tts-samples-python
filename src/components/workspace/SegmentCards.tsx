@@ -14,6 +14,7 @@ interface SegmentCardsProps {
   onRegenerateSegment: (sentenceIndex: number, segmentIndex: number) => void;
   onSegmentClick?: (segmentIndex: number) => void;
   activeSegmentIndex?: number;
+  regeneratingSegmentKey?: string | null;
 }
 
 function EditableText({ text, onSave }: { text: string; onSave: (t: string) => void }) {
@@ -59,7 +60,7 @@ function EditableText({ text, onSave }: { text: string; onSave: (t: string) => v
   );
 }
 
-export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmentIndex }: SegmentCardsProps) {
+export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmentIndex, regeneratingSegmentKey }: SegmentCardsProps) {
   const sentences = useProjectStore((s) => s.sentences);
   const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
   const updateSegmentText = useProjectStore((s) => s.updateSegmentText);
@@ -86,6 +87,7 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
             ? `${segment.duration.toFixed(2)}s`
             : "--";
         const isRegenerating = segment.status === "generating";
+        const isAnyRegenerating = regeneratingSegmentKey !== null;
         const isActive = activeSegmentIndex === i;
 
         return (
@@ -126,9 +128,9 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
             <div className="flex items-center gap-2 ml-3">
               <button
                 onClick={(e) => { e.stopPropagation(); onRegenerateSegment(selectedIndex, i); }}
-                disabled={isRegenerating}
+                disabled={isAnyRegenerating}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border-input text-[12px] font-medium transition-colors ${
-                  isRegenerating
+                  isAnyRegenerating
                     ? "opacity-50 cursor-not-allowed text-text-muted"
                     : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
                 }`}

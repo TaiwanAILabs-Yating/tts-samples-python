@@ -8,6 +8,7 @@ import {
   type OrchestratorCallbacks,
 } from "../services/tts-orchestrator.ts";
 import { getConfig } from "../config/index.ts";
+import { logger } from "../utils/logger.ts";
 
 export interface GenerationProgress {
   completed: number;
@@ -27,6 +28,9 @@ export function useGeneration() {
   const [generatingIndices, setGeneratingIndices] = useState<Set<number>>(
     () => new Set()
   );
+
+  // Track which specific segment is currently regenerating (null = none)
+  const [regeneratingSegmentKey, setRegeneratingSegmentKey] = useState<string | null>(null);
 
   const ttsConfig = useRef(getConfig({
     modelId: config.modelId,
@@ -58,6 +62,7 @@ export function useGeneration() {
     for (const sentence of toGenerate) {
       const idx = sentence.index;
 
+      logger.generation.info(`Generating sentence ${idx}: "${sentence.text.slice(0, 30)}..."`);
       updateSentence(idx, { status: "generating" });
 
       const callbacks: OrchestratorCallbacks = {
@@ -116,7 +121,7 @@ export function useGeneration() {
           status: "error",
           rejectNote: errMsg,
         });
-        console.error(`Generation failed for sentence ${idx}:`, err);
+        logger.generation.error(`Generation failed for sentence ${idx}:`, err);
       }
 
       globalCompleted++;
@@ -201,6 +206,7 @@ export function useGeneration() {
       if (!sentence?.pipeline) return;
 
       setGeneratingIndices((prev) => new Set(prev).add(sentenceIndex));
+      setRegeneratingSegmentKey(`${sentenceIndex}:${segmentIndex}`);
 
       const callbacks: OrchestratorCallbacks = {
         onSegmentUpdate: (_segIdx, segment) => {
@@ -241,6 +247,8 @@ export function useGeneration() {
           pipeline: updatedPipeline,
         });
       } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        updateSentence(sentenceIndex, { status: "error", rejectNote: errMsg });
         console.error(
           `Regenerate segment ${segmentIndex} of sentence ${sentenceIndex} failed:`,
           err
@@ -252,6 +260,7 @@ export function useGeneration() {
         next.delete(sentenceIndex);
         return next;
       });
+      setRegeneratingSegmentKey(null);
     },
     [sentences, config, updateSentence]
   );
@@ -260,6 +269,7 @@ export function useGeneration() {
     isGenerating,
     progress,
     generatingIndices,
+    regeneratingSegmentKey,
     handleGenerateAll,
     handleApproveAll,
     handleRegenerateSentence,

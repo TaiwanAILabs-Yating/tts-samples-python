@@ -9,6 +9,7 @@ import { useProjectStore, type SentenceState } from "../stores/project-store.ts"
 import { useGeneration } from "../hooks/useGeneration.ts";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts.ts";
 import { splitSentences } from "../utils/preprocessing.ts";
+import { preloadFFmpeg } from "../services/ffmpeg-service.ts";
 import type { PipelineState, SegmentState as OrcSegmentState } from "../services/tts-orchestrator.ts";
 
 export function WorkspacePage() {
@@ -25,6 +26,7 @@ export function WorkspacePage() {
   const {
     isGenerating,
     progress,
+    regeneratingSegmentKey,
     handleGenerateAll,
     handleApproveAll,
     handleRegenerateSentence,
@@ -66,6 +68,21 @@ export function WorkspacePage() {
     onApprove: handleApprove,
     onReject: handleReject,
   });
+
+  // Eagerly preload FFmpeg WASM on workspace mount
+  useEffect(() => {
+    preloadFFmpeg().catch((err) => {
+      console.error("[workspace] FFmpeg preload failed:", err);
+    });
+  }, []);
+
+  // Auto-save project to savedProjects list when sentences change
+  const saveCurrentProject = useProjectStore((s) => s.saveCurrentProject);
+  useEffect(() => {
+    if (sentences.length > 0) {
+      saveCurrentProject();
+    }
+  }, [sentences, saveCurrentProject]);
 
   const autoGenerateTriggered = useRef(false);
 
@@ -146,9 +163,11 @@ export function WorkspacePage() {
                 onRegenerateSegment={handleRegenerateSegment}
                 onSegmentClick={(segIndex) => waveformRef.current?.seekToSegmentIndex(segIndex)}
                 activeSegmentIndex={activeSegmentIndex}
+                regeneratingSegmentKey={regeneratingSegmentKey}
               />
               <BottomActions
                 onRegenerateSentence={handleRegenerateSentence}
+                isSegmentRegenerating={regeneratingSegmentKey !== null}
               />
               {/* Notes */}
               <div className="flex flex-col gap-2">
