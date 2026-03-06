@@ -107,7 +107,7 @@ Generation parameter controls.
 
 **Controls:**
 - Target Language: Chinese / Taiwanese / English
-- Model: MasterZhengyanKaishi / MasterZhengyanFoJing
+- Model: Combo box (input + datalist) — select from presets or enter custom model ID
 - Segmentation Mode: Raw / Sentence / Clause
 - Min/Max Token range sliders (1-100)
 

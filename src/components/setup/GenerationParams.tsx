@@ -38,14 +38,17 @@ export function GenerationParams() {
           <label className="text-xs font-medium text-text-secondary">
             Model <span className="text-status-error">*</span>
           </label>
-          <select
+          <input
+            list="model-options"
             value={config.modelId}
             onChange={(e) => updateConfig({ modelId: e.target.value })}
-            className="bg-bg-primary text-text-primary text-sm font-mono rounded-md border border-border-input px-3 py-2.5 appearance-none cursor-pointer focus:outline-none focus:border-accent-primary"
-          >
-            <option value="MasterZhengyanKaishi">MasterZhengyanKaishi</option>
-            <option value="MasterZhengyanFoJing">MasterZhengyanFoJing</option>
-          </select>
+            placeholder="Select or enter model ID"
+            className="bg-bg-primary text-text-primary text-sm font-mono rounded-md border border-border-input px-3 py-2.5 focus:outline-none focus:border-accent-primary"
+          />
+          <datalist id="model-options">
+            <option value="MasterZhengyanKaishi" />
+            <option value="MasterZhengyanFoJing" />
+          </datalist>
         </div>
       </div>
 
