@@ -207,6 +207,9 @@ cython_debug/
 node_modules/
 dist/
 
+# FFmpeg WASM (copied from node_modules by postinstall)
+public/ffmpeg/
+
 # Ruff stuff:
 .ruff_cache/
 

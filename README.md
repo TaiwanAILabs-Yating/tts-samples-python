@@ -295,12 +295,14 @@ output.wav                       # 最終串接的完整音檔
 ### 快速啟動
 
 ```bash
-# 安裝依賴
+# 安裝依賴（postinstall 會自動複製 FFmpeg WASM 到 public/ffmpeg/）
 npm install
 
 # 開發伺服器（含 FFmpeg.wasm 所需的 CORS headers）
 npm run dev
 ```
+
+> **首次使用者**：只需要 `npm install` 即可，postinstall script 會自動從 `node_modules/@ffmpeg/core` 複製 WASM 檔案到 `public/ffmpeg/`。無需手動操作。
 
 ### 使用流程
 
