@@ -188,7 +188,6 @@ export function SentenceSidebar({
             fadeCurve: config.fadeCurve,
             startSilence: config.startSilence,
             endSilence: config.endSilence,
-            outputSrt: config.outputSrt,
           },
         },
         sentences: sentences.map((s) => ({

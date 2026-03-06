@@ -168,8 +168,7 @@ Left sidebar with sentence list and bulk actions.
       "crossfadeDuration": 0.05,
       "fadeCurve": "hsin",
       "startSilence": 0.3,
-      "endSilence": 0.3,
-      "outputSrt": true
+      "endSilence": 0.3
     }
   },
   "sentences": [
@@ -260,6 +259,5 @@ Sliding drawer panel with advanced configuration.
 | Audio Generation | End silence token toggle, parallel workers (1-20), max retries (0-10), retry delay (0.1-5s) |
 | Silence Padding | Start silence (0-1s), End silence (0-1s) |
 | Crossfade | Duration (0-0.2s), Curve type (tri/qsin/hsin/log/exp) |
-| SRT Subtitles | Output SRT toggle |
 
 **Props:** None (reads from store, opened via `isSettingsOpen`)
