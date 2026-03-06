@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { TopNav } from "../components/TopNav.tsx";
 import { VoiceSetup } from "../components/setup/VoiceSetup.tsx";
@@ -16,9 +16,7 @@ export function SetupPage() {
   const isSettingsOpen = useProjectStore((s) => s.isSettingsOpen);
   const setSettingsOpen = useProjectStore((s) => s.setSettingsOpen);
 
-  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const canCreate = rawText.trim().length > 0 && config.promptVoiceText.trim().length > 0;
 
@@ -43,9 +41,7 @@ export function SetupPage() {
     }));
   }, [showPreview, sentenceTexts, config.segmentMode, config.minTokens, config.maxTokens]);
 
-  const handleCreate = (autoGenerate: boolean) => {
-    setDropdownOpen(false);
-
+  const handleCreate = () => {
     // Build new sentences directly from current rawText + config
     const newSentences: SentenceState[] = sentenceTexts.map((text, i) => {
       const segTexts = splitSentences(text, config.segmentMode, config.minTokens, config.maxTokens);
@@ -61,24 +57,12 @@ export function SetupPage() {
     });
 
     useProjectStore.setState({
-      autoGenerate,
+      autoGenerate: true,
       sentences: newSentences,
       selectedSentenceIndex: 0,
     });
     navigate("/workspace");
   };
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    if (!dropdownOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [dropdownOpen]);
 
   return (
     <div className="flex flex-col h-screen">
@@ -143,54 +127,25 @@ export function SetupPage() {
                 Advanced
               </button>
 
-              {/* Create Project split button */}
-              <div className="relative" ref={dropdownRef}>
-                <div className="flex">
-                  <button
-                    disabled={!canCreate}
-                    onClick={() => handleCreate(true)}
-                    className="flex items-center gap-2 text-sm font-semibold text-white bg-accent-primary hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed pl-5 pr-3 py-2.5 rounded-l-md transition-colors"
-                  >
-                    <svg
-                      className="w-4 h-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-                    </svg>
-                    Create & Generate
-                  </button>
-                  <button
-                    disabled={!canCreate}
-                    onClick={() => setDropdownOpen(!dropdownOpen)}
-                    className="flex items-center text-white bg-accent-primary hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed px-2 py-2.5 rounded-r-md border-l border-white/20 transition-colors"
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
-                  </button>
-                </div>
-                {dropdownOpen && (
-                  <div className="absolute right-0 mt-1 w-48 bg-bg-secondary border border-border-secondary rounded-md shadow-lg z-50 py-1">
-                    <button
-                      onClick={() => handleCreate(true)}
-                      className="w-full text-left px-4 py-2 text-sm text-text-primary hover:bg-bg-tertiary transition-colors"
-                    >
-                      Create & Generate
-                    </button>
-                    <button
-                      onClick={() => handleCreate(false)}
-                      className="w-full text-left px-4 py-2 text-sm text-text-secondary hover:bg-bg-tertiary transition-colors"
-                    >
-                      Create Only
-                    </button>
-                  </div>
-                )}
-              </div>
+              {/* Create & Generate button */}
+              <button
+                disabled={!canCreate}
+                onClick={handleCreate}
+                className="flex items-center gap-2 text-sm font-semibold text-white bg-accent-primary hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed px-5 py-2.5 rounded-md transition-colors"
+              >
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+                </svg>
+                Create & Generate
+              </button>
             </div>
           </section>
         </div>
