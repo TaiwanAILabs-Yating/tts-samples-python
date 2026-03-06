@@ -9,6 +9,7 @@ const mockReadFile = vi
 const mockDeleteFile = vi.fn().mockResolvedValue(undefined);
 const mockLoad = vi.fn().mockResolvedValue(undefined);
 const mockTerminate = vi.fn();
+const mockToBlobURL = vi.fn().mockResolvedValue("blob:mock");
 
 vi.mock("@ffmpeg/ffmpeg", () => ({
   FFmpeg: vi.fn().mockImplementation(() => ({
@@ -23,7 +24,7 @@ vi.mock("@ffmpeg/ffmpeg", () => ({
 }));
 
 vi.mock("@ffmpeg/util", () => ({
-  toBlobURL: vi.fn().mockResolvedValue("blob:mock"),
+  toBlobURL: (...args: unknown[]) => mockToBlobURL(...args),
   fetchFile: vi.fn().mockResolvedValue(new Uint8Array()),
 }));
 
@@ -31,6 +32,7 @@ vi.mock("@ffmpeg/util", () => ({
 const {
   padAudioWithSilence,
   concatWavsWithCrossfade,
+  preloadFFmpeg,
   terminateFFmpeg,
 } = await import("../services/ffmpeg-service");
 
@@ -175,5 +177,61 @@ describe("concatWavsWithCrossfade", () => {
 describe("terminateFFmpeg", () => {
   it("can be called without error", async () => {
     await expect(terminateFFmpeg()).resolves.not.toThrow();
+  });
+});
+
+describe("FFmpeg loading", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Reset singleton state by terminating any existing instance
+    terminateFFmpeg();
+  });
+
+  it("calls toBlobURL with correct paths and MIME types", async () => {
+    await preloadFFmpeg();
+
+    expect(mockToBlobURL).toHaveBeenCalledWith(
+      "/ffmpeg/ffmpeg-core.js",
+      "text/javascript"
+    );
+    expect(mockToBlobURL).toHaveBeenCalledWith(
+      "/ffmpeg/ffmpeg-core.wasm",
+      "application/wasm"
+    );
+  });
+
+  it("calls ffmpeg.load with blob URLs from toBlobURL", async () => {
+    mockToBlobURL
+      .mockResolvedValueOnce("blob:core-url")
+      .mockResolvedValueOnce("blob:wasm-url");
+
+    await preloadFFmpeg();
+
+    expect(mockLoad).toHaveBeenCalledWith({
+      coreURL: "blob:core-url",
+      wasmURL: "blob:wasm-url",
+    });
+  });
+
+  it("reuses loaded instance on subsequent calls", async () => {
+    await preloadFFmpeg();
+    await preloadFFmpeg();
+
+    // toBlobURL should only be called once (2 calls for core + wasm)
+    expect(mockToBlobURL).toHaveBeenCalledTimes(2);
+    expect(mockLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows retry after load failure", async () => {
+    mockLoad.mockRejectedValueOnce(new Error("load failed"));
+
+    await expect(preloadFFmpeg()).rejects.toThrow("load failed");
+
+    // Reset mock for retry
+    mockLoad.mockResolvedValueOnce(undefined);
+
+    // Should succeed on retry (not reuse failed instance)
+    await expect(preloadFFmpeg()).resolves.not.toThrow();
+    expect(mockLoad).toHaveBeenCalledTimes(2);
   });
 });
