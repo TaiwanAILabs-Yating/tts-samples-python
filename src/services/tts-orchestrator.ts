@@ -4,10 +4,11 @@ import type { SegmentMode } from "../utils/preprocessing";
 import type { ZeroShotRequest } from "./tts-client";
 import { preprocessText, splitSentences, generateUttId } from "../utils/preprocessing";
 import { sendZeroShotRequest, uploadPromptVoice } from "./tts-client";
-import { concatWavsWithCrossfade } from "./ffmpeg-service";
+import { concatWavsWithCrossfade, padAudioWithSilence } from "./ffmpeg-service";
 import { generateSrt } from "../utils/srt";
 import { getWavDuration } from "../utils/audio";
 import { generateWithRetry, generateBatch } from "./batch-generator";
+import { logger } from "../utils/logger";
 
 // --- Types ---
 
@@ -59,6 +60,7 @@ export interface GenerateAllConfig {
 }
 
 export interface RegenerateConfig {
+  promptVoiceText?: string;
   language?: string;
   promptLanguage?: string;
   addEndSilence?: boolean;
@@ -113,12 +115,23 @@ async function recombineOutputs(
   }
 
   const audios = successSegments.map((s) => s.audio!);
-  const concatenatedAudio = await concatWavsWithCrossfade(
-    audios,
-    crossfadeDuration,
-    fadeCurve
-  );
-  callbacks?.onConcatComplete?.(concatenatedAudio);
+
+  let concatenatedAudio: ArrayBuffer;
+  try {
+    logger.orchestrator.info(`Concatenating ${audios.length} segments...`);
+    concatenatedAudio = await concatWavsWithCrossfade(
+      audios,
+      crossfadeDuration,
+      fadeCurve
+    );
+    callbacks?.onConcatComplete?.(concatenatedAudio);
+    logger.orchestrator.info("Concat complete");
+  } catch (err) {
+    logger.orchestrator.error("Concat failed:", err);
+    throw new Error(
+      `Audio concatenation failed: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
 
   const srtSegments = successSegments.map((s) => ({
     text: s.text,
@@ -141,31 +154,55 @@ export async function generateAll(
   callbacks?: OrchestratorCallbacks
 ): Promise<PipelineState> {
   // Step 1: Preprocess text
+  logger.orchestrator.info("Step 1: Preprocessing text...");
   const cleanedText = preprocessText(config.text);
 
   // Step 2: Split into segments
+  logger.orchestrator.info("Step 2: Splitting into segments...");
   const texts = splitSentences(
     cleanedText,
     config.segmentMode ?? "sentence",
     config.minTokens ?? 10,
     config.maxTokens ?? 40
   );
+  logger.orchestrator.info(`Split into ${texts.length} segments`);
 
   const segments = buildSegmentStates(texts);
 
-  // Step 3: Upload prompt voice
+  // Step 3: Pad prompt voice with silence (match Python behavior)
+  const startSilence = config.startSilence ?? 0;
+  const endSilence = config.endSilence ?? 0;
+  let promptFile: File | Blob = config.promptVoiceFile;
+
+  if (startSilence > 0 || endSilence > 0) {
+    logger.orchestrator.info(
+      `Step 3a: Padding prompt voice (start=${startSilence}s, end=${endSilence}s)`
+    );
+    const originalBuffer = await config.promptVoiceFile.arrayBuffer();
+    const paddedBuffer = await padAudioWithSilence(
+      originalBuffer,
+      startSilence,
+      endSilence
+    );
+    promptFile = new Blob([paddedBuffer], { type: "audio/wav" });
+  }
+
+  // Step 4: Upload prompt voice
+  logger.orchestrator.info("Step 4: Uploading prompt voice...");
   const promptVoiceAssetKey = await uploadPromptVoice(
-    config.promptVoiceFile,
+    promptFile,
     "prompt.wav",
     config.config
   );
+  logger.orchestrator.info(`Prompt voice uploaded: ${promptVoiceAssetKey}`);
 
   const state: PipelineState = {
     segments,
     promptVoiceAssetKey,
   };
 
-  // Step 4: Generate audio for each segment (parallel with retry)
+  // Step 5: Generate audio for each segment (parallel with retry)
+  logger.orchestrator.info("Step 5: Generating audio for segments...");
   const concurrency = config.concurrency ?? 3;
   const maxRetries = config.maxRetries ?? 3;
   const retryBaseDelay = config.retryBaseDelay ?? 1.0;
@@ -208,7 +245,7 @@ export async function generateAll(
     callbacks?.onProgress?.(completed, total);
   });
 
-  // Step 5 & 6: Concat + SRT
+  // Step 6 & 7: Concat + SRT
   const crossfadeDuration = config.crossfadeDuration ?? 0.05;
   const fadeCurve = config.fadeCurve ?? "tri";
 
@@ -254,7 +291,7 @@ export async function regenerateSegment(
 
   const req: ZeroShotRequest = {
     text: segment.text,
-    promptVoiceText: "", // already uploaded; text not needed again
+    promptVoiceText: rConfig.promptVoiceText ?? "",
     promptVoiceAssetKey: state.promptVoiceAssetKey,
     promptVoiceUrl: "",
     language: rConfig.language,
@@ -328,7 +365,7 @@ export async function regenerateSentence(
 
     const req: ZeroShotRequest = {
       text: segment.text,
-      promptVoiceText: "",
+      promptVoiceText: rConfig.promptVoiceText ?? "",
       promptVoiceAssetKey: state.promptVoiceAssetKey!,
       promptVoiceUrl: "",
       language: rConfig.language,
@@ -356,7 +393,8 @@ export async function regenerateSentence(
     });
   });
 
-  await generateBatch(tasks, 3, (completed, total) => {
+  const concurrency = rConfig.config?.concurrency ?? 3;
+  await generateBatch(tasks, concurrency, (completed, total) => {
     callbacks?.onProgress?.(completed, total);
   });
 

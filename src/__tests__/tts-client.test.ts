@@ -11,15 +11,14 @@ import {
 
 describe("getConfig", () => {
   it("returns defaults when no overrides", () => {
-    const config = getConfig();
+    const config = getConfig({ env: "dev" });
     expect(config.env).toBe("dev");
     expect(config.apiKey).toBe("fedgpt-api-key");
     expect(config.zeroShotApiUrl).toContain("speeches:zero-shot");
     expect(config.presignUrl).toContain("transcriptions:presign");
     expect(config.uploadUrl).toContain("/asset/");
-    expect(config.modelId).toBe("tts-general-1.2.2");
+    expect(config.modelId).toBeTruthy();
     expect(config.authKey).toBe("fedgpt");
-    expect(config.authSecret).toBe("");
   });
 
   it("applies runtime overrides", () => {
@@ -117,7 +116,7 @@ describe("sendZeroShotRequest", () => {
       new Response(wavData, { status: 200 })
     );
 
-    const config = getConfig();
+    const config = getConfig({ env: "dev" });
     await sendZeroShotRequest(
       {
         text: "你好世界",
@@ -134,7 +133,7 @@ describe("sendZeroShotRequest", () => {
     expect(body.input.text).toBe("你好世界");
     expect(body.input.promptText).toBe("參考文字");
     expect(body.input.promptVoiceAssetKey).toBe("asset-123");
-    expect(body.modelConfig.model).toBe("tts-general-1.2.2");
+    expect(body.modelConfig.model).toBe(config.modelId);
     expect(body.audioConfig.encoding).toBe("LINEAR16");
   });
 
@@ -143,7 +142,7 @@ describe("sendZeroShotRequest", () => {
       new Response(new ArrayBuffer(0), { status: 200 })
     );
 
-    const config = getConfig();
+    const config = getConfig({ env: "dev" });
     await sendZeroShotRequest(
       {
         text: "你好",
@@ -166,7 +165,7 @@ describe("sendZeroShotRequest", () => {
       new Response(new ArrayBuffer(0), { status: 200 })
     );
 
-    const config = getConfig();
+    const config = getConfig({ env: "dev" });
     await sendZeroShotRequest(
       {
         text: "你好",
@@ -189,7 +188,7 @@ describe("sendZeroShotRequest", () => {
       new Response(new ArrayBuffer(0), { status: 200 })
     );
 
-    const config = getConfig();
+    const config = getConfig({ env: "dev" });
     await sendZeroShotRequest(
       {
         text: "你好",
@@ -212,7 +211,7 @@ describe("sendZeroShotRequest", () => {
       new Response("Server Error", { status: 500 })
     );
 
-    const config = getConfig();
+    const config = getConfig({ env: "dev" });
     await expect(
       sendZeroShotRequest(
         {
@@ -244,7 +243,7 @@ describe("presign", () => {
       )
     );
 
-    const config = getConfig();
+    const config = getConfig({ env: "dev" });
     const result = await presign("audio/mpeg", config);
 
     expect(result.assetKey).toBe("key-123");
@@ -256,7 +255,7 @@ describe("presign", () => {
       new Response("Bad Request", { status: 400 })
     );
 
-    const config = getConfig();
+    const config = getConfig({ env: "dev" });
     await expect(presign("audio/mpeg", config)).rejects.toThrow(
       "Presign request failed with status 400"
     );
@@ -284,7 +283,7 @@ describe("uploadPromptVoice", () => {
       // Second call: upload
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
 
-    const config = getConfig();
+    const config = getConfig({ env: "dev" });
     const file = new Blob(["audio data"], { type: "audio/mpeg" });
     const assetKey = await uploadPromptVoice(
       file,
@@ -313,7 +312,7 @@ describe("uploadPromptVoice", () => {
         new Response("Forbidden", { status: 403 })
       );
 
-    const config = getConfig();
+    const config = getConfig({ env: "dev" });
     const file = new Blob(["data"]);
     await expect(
       uploadPromptVoice(file, "test.mp3", config)

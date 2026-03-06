@@ -1,5 +1,6 @@
 import type { TtsConfig } from "../config/index";
 import { getAuthHeaders } from "./auth";
+import { logger } from "../utils/logger";
 
 const END_SILENCE_TOKEN = "<|sil_200ms|>";
 
@@ -54,6 +55,7 @@ export async function sendZeroShotRequest(
     },
   };
 
+  logger.ttsClient.info(`POST ${config.zeroShotApiUrl} text="${req.text.slice(0, 30)}..."`);
   const response = await fetch(config.zeroShotApiUrl, {
     method: "POST",
     headers: {
@@ -65,11 +67,13 @@ export async function sendZeroShotRequest(
 
   if (!response.ok) {
     const text = await response.text();
+    logger.ttsClient.error(`Request failed: ${response.status} ${text}`);
     throw new Error(
       `Request failed with status ${response.status}: ${text}`
     );
   }
 
+  logger.ttsClient.info(`Response OK (${response.status})`);
   return response.arrayBuffer();
 }
 

@@ -1,14 +1,39 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { toBlobURL, fetchFile } from "@ffmpeg/util";
+import { toBlobURL } from "@ffmpeg/util";
+import { logger } from "../utils/logger";
+
+// WASM files served from public/ffmpeg/ (copied from @ffmpeg/core)
+const CORE_PATH = "/ffmpeg/ffmpeg-core.js";
+const WASM_PATH = "/ffmpeg/ffmpeg-core.wasm";
 
 export type FadeCurve = "tri" | "qsin" | "hsin" | "log" | "exp";
+
+const LOAD_TIMEOUT_MS = 60_000;
+const EXEC_TIMEOUT_MS = 30_000;
 
 let ffmpegInstance: FFmpeg | null = null;
 let loadPromise: Promise<void> | null = null;
 
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`${label} timed out after ${ms}ms`)),
+        ms
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 /**
- * Lazily load and return the shared FFmpeg instance.
- * The ~25MB core is downloaded only on first use.
+ * Load and return the shared FFmpeg instance.
+ * WASM is served from local node_modules via Vite.
  */
 async function getFFmpeg(): Promise<FFmpeg> {
   if (ffmpegInstance?.loaded) {
@@ -22,22 +47,36 @@ async function getFFmpeg(): Promise<FFmpeg> {
 
   ffmpegInstance = new FFmpeg();
 
-  loadPromise = (async () => {
-    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
-    await ffmpegInstance!.load({
-      coreURL: await toBlobURL(
-        `${baseURL}/ffmpeg-core.js`,
-        "text/javascript"
-      ),
-      wasmURL: await toBlobURL(
-        `${baseURL}/ffmpeg-core.wasm`,
-        "application/wasm"
-      ),
-    });
-  })();
+  logger.ffmpeg.info("Loading FFmpeg WASM...");
+  loadPromise = withTimeout(
+    (async () => {
+      const coreURL = await toBlobURL(CORE_PATH, "text/javascript");
+      const wasmURL = await toBlobURL(WASM_PATH, "application/wasm");
+      await ffmpegInstance!.load({ coreURL, wasmURL });
+    })(),
+    LOAD_TIMEOUT_MS,
+    "FFmpeg WASM load"
+  );
 
-  await loadPromise;
+  try {
+    await loadPromise;
+    logger.ffmpeg.info("FFmpeg WASM loaded successfully");
+  } catch (err) {
+    // Allow retry on next call
+    loadPromise = null;
+    ffmpegInstance = null;
+    logger.ffmpeg.error("FFmpeg WASM load failed:", err);
+    throw err;
+  }
+
   return ffmpegInstance!;
+}
+
+/**
+ * Preload FFmpeg WASM eagerly (call on page mount).
+ */
+export async function preloadFFmpeg(): Promise<void> {
+  await getFFmpeg();
 }
 
 /**
@@ -75,12 +114,15 @@ export async function padAudioWithSilence(
     return audioData;
   }
 
+  logger.ffmpeg.info(
+    `Padding audio: start=${startSilenceSec}s, end=${endSilenceSec}s`
+  );
   const ffmpeg = await getFFmpeg();
   const inputFile = "pad_input.wav";
   const outputFile = "pad_output.wav";
 
   try {
-    await ffmpeg.writeFile(inputFile, new Uint8Array(audioData));
+    await ffmpeg.writeFile(inputFile, new Uint8Array(audioData.slice(0)));
 
     // Build filter chain (same as Python version)
     const filters: string[] = [];
@@ -92,16 +134,15 @@ export async function padAudioWithSilence(
       filters.push(`apad=pad_dur=${endSilenceSec}`);
     }
 
-    await ffmpeg.exec([
-      "-i",
-      inputFile,
-      "-af",
-      filters.join(","),
-      outputFile,
-    ]);
+    await withTimeout(
+      ffmpeg.exec(["-i", inputFile, "-af", filters.join(","), outputFile]),
+      EXEC_TIMEOUT_MS,
+      "FFmpeg pad"
+    );
 
     const data = await ffmpeg.readFile(outputFile);
-    return (data as Uint8Array).buffer;
+    logger.ffmpeg.info("Padding complete");
+    return new Uint8Array(data as Uint8Array).buffer as ArrayBuffer;
   } finally {
     await cleanupFiles(ffmpeg, [inputFile, outputFile]);
   }
@@ -130,6 +171,9 @@ export async function concatWavsWithCrossfade(
     return audioBuffers[0];
   }
 
+  logger.ffmpeg.info(
+    `Concatenating ${audioBuffers.length} segments (crossfade=${crossfadeDuration}s, curve=${fadeCurve})`
+  );
   const ffmpeg = await getFFmpeg();
   const inputFiles: string[] = [];
   const outputFile = "crossfade_output.wav";
@@ -141,7 +185,7 @@ export async function concatWavsWithCrossfade(
       inputFiles.push(fileName);
       await ffmpeg.writeFile(
         fileName,
-        new Uint8Array(audioBuffers[i])
+        new Uint8Array(audioBuffers[i].slice(0))
       );
     }
 
@@ -179,15 +223,20 @@ export async function concatWavsWithCrossfade(
       filterComplex = filters.join(";");
     }
 
-    await ffmpeg.exec([
-      ...inputArgs,
-      "-filter_complex",
-      filterComplex,
-      outputFile,
-    ]);
+    await withTimeout(
+      ffmpeg.exec([
+        ...inputArgs,
+        "-filter_complex",
+        filterComplex,
+        outputFile,
+      ]),
+      EXEC_TIMEOUT_MS,
+      "FFmpeg concat"
+    );
 
     const data = await ffmpeg.readFile(outputFile);
-    return (data as Uint8Array).buffer;
+    logger.ffmpeg.info("Concat complete");
+    return new Uint8Array(data as Uint8Array).buffer as ArrayBuffer;
   } finally {
     await cleanupFiles(ffmpeg, [...inputFiles, outputFile]);
   }
