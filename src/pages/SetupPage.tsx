@@ -5,8 +5,9 @@ import { VoiceSetup } from "../components/setup/VoiceSetup.tsx";
 import { TextInputCard } from "../components/setup/TextInputCard.tsx";
 import { GenerationParams } from "../components/setup/GenerationParams.tsx";
 import { AdvancedSettingsDrawer } from "../components/workspace/AdvancedSettingsDrawer.tsx";
-import { useProjectStore } from "../stores/project-store.ts";
+import { useProjectStore, type SentenceState } from "../stores/project-store.ts";
 import { splitSentences, countTokens } from "../utils/preprocessing.ts";
+import type { PipelineState, SegmentState as OrcSegmentState } from "../services/tts-orchestrator.ts";
 
 export function SetupPage() {
   const navigate = useNavigate();
@@ -44,8 +45,26 @@ export function SetupPage() {
 
   const handleCreate = (autoGenerate: boolean) => {
     setDropdownOpen(false);
-    // Store whether to auto-generate so WorkspacePage can pick it up
-    useProjectStore.setState({ autoGenerate });
+
+    // Build new sentences directly from current rawText + config
+    const newSentences: SentenceState[] = sentenceTexts.map((text, i) => {
+      const segTexts = splitSentences(text, config.segmentMode, config.minTokens, config.maxTokens);
+      const segments: OrcSegmentState[] = segTexts.map((segText, si) => ({
+        index: si,
+        text: segText,
+        status: "pending" as const,
+        attempts: 0,
+        history: [],
+      }));
+      const pipeline: PipelineState = { segments };
+      return { index: i, text, status: "pending" as const, pipeline };
+    });
+
+    useProjectStore.setState({
+      autoGenerate,
+      sentences: newSentences,
+      selectedSentenceIndex: 0,
+    });
     navigate("/workspace");
   };
 
