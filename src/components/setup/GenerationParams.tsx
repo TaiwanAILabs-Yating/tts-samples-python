@@ -43,7 +43,6 @@ export function GenerationParams() {
             onChange={(e) => updateConfig({ modelId: e.target.value })}
             className="bg-bg-primary text-text-primary text-sm font-mono rounded-md border border-border-input px-3 py-2.5 appearance-none cursor-pointer focus:outline-none focus:border-accent-primary"
           >
-            <option value="tts-general-1.2.2">tts-general-1.2.2</option>
             <option value="MasterZhengyanKaishi">MasterZhengyanKaishi</option>
             <option value="MasterZhengyanFoJing">MasterZhengyanFoJing</option>
           </select>

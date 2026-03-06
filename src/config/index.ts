@@ -17,7 +17,7 @@ const defaults: TtsConfig = {
   presignUrl:
     "https://ent.fedgpt.cc/api/asura/v1/transcriptions:presign",
   uploadUrl: "https://ent.fedgpt.cc/asset/",
-  modelId: "tts-general-1.2.2",
+  modelId: "MasterZhengyanKaishi",
   authKey: "fedgpt",
   authSecret: "",
 };
