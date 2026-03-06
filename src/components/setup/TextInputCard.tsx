@@ -26,26 +26,12 @@ export function TextInputCard() {
       const reader = new FileReader();
       reader.onload = (e) => {
         const content = e.target?.result as string;
-        // Support both plain text (one sentence per line) and Kaldi format (utt_id<space>text)
+        // Each non-empty line is treated as one sentence
         const lines = content
           .split("\n")
           .map((l) => l.trim())
           .filter((l) => l.length > 0);
-
-        // Auto-detect Kaldi format: if most lines have a clear "id text" pattern
-        const kaldiPattern = /^\S+\s+.+$/;
-        const kaldiMatches = lines.filter((l) => kaldiPattern.test(l)).length;
-        const isKaldi = kaldiMatches > lines.length * 0.8 && lines.length > 0;
-
-        let text: string;
-        if (isKaldi) {
-          // Strip utterance IDs, keep only text
-          text = lines
-            .map((l) => l.replace(/^\S+\s+/, ""))
-            .join("\n");
-        } else {
-          text = lines.join("\n");
-        }
+        const text = lines.join("\n");
 
         setRawText(text);
         setUploadedFile({
@@ -178,7 +164,7 @@ export function TextInputCard() {
               Browse Files
             </button>
             <span className="text-[11px] text-text-muted mt-2">
-              Supported: .txt (plain text, one sentence per line or Kaldi format)
+              Supported: .txt (one sentence per line)
             </span>
           </div>
 
