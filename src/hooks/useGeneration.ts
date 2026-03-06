@@ -42,9 +42,13 @@ export function useGeneration() {
   const handleGenerateAll = useCallback(async () => {
     if (isGenerating) return;
 
-    // Find sentences that need generation (pending or error)
+    // Find sentences that need (re)generation
     const toGenerate = sentences.filter(
-      (s) => s.status === "pending" || s.status === "error"
+      (s) =>
+        s.status === "pending" ||
+        s.status === "error" ||
+        s.status === "generated" ||
+        s.status === "approved"
     );
     if (toGenerate.length === 0) return;
 

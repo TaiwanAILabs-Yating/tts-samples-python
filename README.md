@@ -302,6 +302,8 @@ npm install
 npm run dev
 ```
 
+啟動後在瀏覽器輸入 `http://localhost:5173` 即可進入 UI 操作頁面。
+
 > **首次使用者**：只需要 `npm install` 即可，postinstall script 會自動從 `node_modules/@ffmpeg/core` 複製 WASM 檔案到 `public/ffmpeg/`。無需手動操作。
 
 ### 使用流程
@@ -334,13 +336,15 @@ npm run dev
    - 分段模式：Raw（不分段）/ Sentence（句號分段）/ Clause（逗號分段）
    - Token 範圍：Min / Max Token 滑桿
 
-4. **預覽分段** → 點擊「Create & Generate」或「Create Only」
+4. **Preview Segments**（預覽分段）→ 確認分段結果後：
+   - 點擊「**Create & Generate**」：新增專案並立即開始生成音檔
+   - 點擊「**Create Only**」：僅新增專案，不自動生成
 
 #### Step 2：Workspace Page — 生成與審核
 
 1. **生成語音**
-   - 「Generate All」一次生成所有句子
-   - 或逐句點擊生成
+   - 「Regenerate All」一次重新生成所有句子
+   - 或逐句使用「Regenerate Sentence」重新生成
    - 平行執行（可設定並行數），失敗自動重試
 
 2. **波形播放器**
@@ -360,10 +364,10 @@ npm run dev
 
 #### Step 3：匯出
 
-- **單句下載**：Approve 後點擊 Download 按鈕，下載 WAV
+- **單句下載**：Approve 後點擊 Download 按鈕，下載該句 WAV 音檔
 - **批次匯出 ZIP**（兩種模式）：
-  - **Audio + Metadata**（預設）：所有 Approved 句子的 WAV + `metadata.json`
-  - **Audio Only**：僅 WAV 檔案
+  - **Audio + Metadata**（預設）：所有 Approved 句子的 WAV + `metadata.json`（含生成參數、審核狀態、Notes 等）
+  - **Audio Only**：僅匯出 WAV 檔案，不含 metadata
 
 ### 鍵盤快捷鍵
 
