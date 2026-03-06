@@ -84,7 +84,6 @@ function makePipelineState(segmentCount: number): PipelineState {
   return {
     segments,
     concatenatedAudio: fakeConcatAudio,
-    srtContent: "1\n00:00:00,000 --> 00:00:02,000\nSegment 0\n",
     promptVoiceAssetKey: "asset-key-123",
   };
 }
@@ -100,7 +99,7 @@ describe("generateAll", () => {
     mockConcatWavs.mockResolvedValue(fakeConcatAudio);
   });
 
-  it("executes full pipeline: preprocess → split → upload → generate → concat → SRT", async () => {
+  it("executes full pipeline: preprocess → split → upload → generate → concat", async () => {
     const config = makeGenerateAllConfig({
       text: "第一句。第二句。",
     });
@@ -116,9 +115,6 @@ describe("generateAll", () => {
     expect(result.segments[0].status).toBe("success");
     expect(result.segments[1].status).toBe("success");
     expect(result.concatenatedAudio).toBe(fakeConcatAudio);
-    expect(result.srtContent).toBeDefined();
-    expect(result.srtContent).toContain("第一句");
-    expect(result.srtContent).toContain("第二句");
   });
 
   it("handles partial failure — some segments fail", async () => {
@@ -155,10 +151,9 @@ describe("generateAll", () => {
     const result = await generateAll(config);
 
     expect(result.segments.every((s) => s.status === "error")).toBe(true);
-    // No concat or SRT when all fail
+    // No concat when all fail
     expect(mockConcatWavs).not.toHaveBeenCalled();
     expect(result.concatenatedAudio).toBeUndefined();
-    expect(result.srtContent).toBeUndefined();
   });
 
   it("calls onSegmentUpdate callbacks during generation", async () => {
@@ -192,15 +187,13 @@ describe("generateAll", () => {
     expect(lastCall[0]).toBeGreaterThanOrEqual(1);
   });
 
-  it("calls onConcatComplete and onSrtComplete callbacks", async () => {
+  it("calls onConcatComplete callback", async () => {
     const onConcatComplete = vi.fn();
-    const onSrtComplete = vi.fn();
 
     const config = makeGenerateAllConfig({ text: "一句話。" });
-    await generateAll(config, { onConcatComplete, onSrtComplete });
+    await generateAll(config, { onConcatComplete });
 
     expect(onConcatComplete).toHaveBeenCalledWith(fakeConcatAudio);
-    expect(onSrtComplete).toHaveBeenCalledWith(expect.stringContaining("一句話"));
   });
 
   it("passes language and addEndSilence to TTS request", async () => {
@@ -259,7 +252,6 @@ describe("regenerateSegment", () => {
     expect(result.segments[1].audio).toBe(fakeAudio);
     expect(result.segments[1].duration).toBe(4.0);
     expect(mockConcatWavs).toHaveBeenCalledOnce();
-    expect(result.srtContent).toBeDefined();
   });
 
   it("saves old version to history before regenerating (AC-30)", async () => {
@@ -344,7 +336,6 @@ describe("regenerateSentence", () => {
     expect(mockSendZeroShot).toHaveBeenCalledTimes(3);
     expect(result.segments.every((s) => s.status === "success")).toBe(true);
     expect(mockConcatWavs).toHaveBeenCalledOnce();
-    expect(result.srtContent).toBeDefined();
   });
 
   it("saves all existing versions to history (AC-30)", async () => {

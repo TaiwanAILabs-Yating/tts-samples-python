@@ -188,7 +188,6 @@ export function SentenceSidebar({
             fadeCurve: config.fadeCurve,
             startSilence: config.startSilence,
             endSilence: config.endSilence,
-            outputSrt: config.outputSrt,
           },
         },
         sentences: sentences.map((s) => ({
@@ -203,6 +202,16 @@ export function SentenceSidebar({
           audioFile: s.status === "approved" && s.pipeline?.concatenatedAudio
             ? `${projectName}_sentence_${String(s.index + 1).padStart(3, "0")}.wav`
             : null,
+          segments: (() => {
+            const segs = s.pipeline?.segments ?? [];
+            let offset = 0;
+            return segs.map((seg, i) => {
+              const start = offset;
+              const dur = seg.duration ?? 0;
+              offset += dur;
+              return { index: i, text: seg.text, start, end: offset };
+            });
+          })(),
         })),
       };
       const encoder = new TextEncoder();
@@ -248,10 +257,13 @@ export function SentenceSidebar({
               </>
             ) : (
               <>
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                  <polygon points="5 3 19 12 5 21 5 3" />
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                  <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                  <path d="M16 16h5v5" />
                 </svg>
-                Generate All
+                Regenerate All
               </>
             )}
           </button>
