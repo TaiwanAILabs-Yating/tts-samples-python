@@ -149,6 +149,8 @@ activemq-data/
 
 # Environments
 .env
+.env.local
+.env.*.local
 .envrc
 .venv
 env/
@@ -200,6 +202,13 @@ cython_debug/
 #   and can be added to the global gitignore or merged into this file. However, if you prefer, 
 #   you could uncomment the following to ignore the entire vscode folder
 # .vscode/
+
+# Node.js
+node_modules/
+dist/
+
+# FFmpeg WASM (copied from node_modules by postinstall)
+public/ffmpeg/
 
 # Ruff stuff:
 .ruff_cache/
