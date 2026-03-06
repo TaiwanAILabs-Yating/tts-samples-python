@@ -202,6 +202,16 @@ export function SentenceSidebar({
           audioFile: s.status === "approved" && s.pipeline?.concatenatedAudio
             ? `${projectName}_sentence_${String(s.index + 1).padStart(3, "0")}.wav`
             : null,
+          segments: (() => {
+            const segs = s.pipeline?.segments ?? [];
+            let offset = 0;
+            return segs.map((seg, i) => {
+              const start = offset;
+              const dur = seg.duration ?? 0;
+              offset += dur;
+              return { index: i, text: seg.text, start, end: offset };
+            });
+          })(),
         })),
       };
       const encoder = new TextEncoder();
