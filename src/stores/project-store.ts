@@ -44,7 +44,6 @@ export interface ProjectConfig {
   fadeCurve: FadeCurve;
   startSilence: number;
   endSilence: number;
-  outputSrt: boolean;
 }
 
 // --- Saved project snapshot (excludes audio blobs for serialisation) ---
@@ -123,7 +122,6 @@ const defaultConfig: ProjectConfig = {
   fadeCurve: "hsin",
   startSilence: 0.3,
   endSilence: 0.3,
-  outputSrt: true,
 };
 
 function generateId(): string {

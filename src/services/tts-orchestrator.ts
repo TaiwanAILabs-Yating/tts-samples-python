@@ -5,7 +5,6 @@ import type { ZeroShotRequest } from "./tts-client";
 import { preprocessText, splitSentences, generateUttId } from "../utils/preprocessing";
 import { sendZeroShotRequest, uploadPromptVoice } from "./tts-client";
 import { concatWavsWithCrossfade, padAudioWithSilence } from "./ffmpeg-service";
-import { generateSrt } from "../utils/srt";
 import { getWavDuration } from "../utils/audio";
 import { generateWithRetry, generateBatch } from "./batch-generator";
 import { logger } from "../utils/logger";
@@ -34,7 +33,6 @@ export interface SegmentState {
 export interface PipelineState {
   segments: SegmentState[];
   concatenatedAudio?: ArrayBuffer;
-  srtContent?: string;
   promptVoiceAssetKey?: string;
 }
 
@@ -75,7 +73,6 @@ export interface OrchestratorCallbacks {
   onSegmentUpdate?: (index: number, segment: SegmentState) => void;
   onProgress?: (completed: number, total: number) => void;
   onConcatComplete?: (audio: ArrayBuffer) => void;
-  onSrtComplete?: (srt: string) => void;
 }
 
 // --- Internal helpers ---
@@ -105,7 +102,7 @@ async function recombineOutputs(
   crossfadeDuration: number,
   fadeCurve: FadeCurve,
   callbacks?: OrchestratorCallbacks
-): Promise<{ concatenatedAudio?: ArrayBuffer; srtContent?: string }> {
+): Promise<{ concatenatedAudio?: ArrayBuffer }> {
   const successSegments = segments.filter(
     (s) => s.status === "success" && s.audio
   );
@@ -133,20 +130,13 @@ async function recombineOutputs(
     );
   }
 
-  const srtSegments = successSegments.map((s) => ({
-    text: s.text,
-    duration: s.duration!,
-  }));
-  const srtContent = generateSrt(srtSegments);
-  callbacks?.onSrtComplete?.(srtContent);
-
-  return { concatenatedAudio, srtContent };
+  return { concatenatedAudio };
 }
 
 // --- Public functions ---
 
 /**
- * Full pipeline: text → segments → TTS → concat → SRT.
+ * Full pipeline: text → segments → TTS → concat.
  * Equivalent to Python main.py:main() Steps 1-5.
  */
 export async function generateAll(
@@ -245,11 +235,11 @@ export async function generateAll(
     callbacks?.onProgress?.(completed, total);
   });
 
-  // Step 6 & 7: Concat + SRT
+  // Step 6: Concat
   const crossfadeDuration = config.crossfadeDuration ?? 0.05;
   const fadeCurve = config.fadeCurve ?? "tri";
 
-  const { concatenatedAudio, srtContent } = await recombineOutputs(
+  const { concatenatedAudio } = await recombineOutputs(
     segments,
     crossfadeDuration,
     fadeCurve,
@@ -257,13 +247,12 @@ export async function generateAll(
   );
 
   state.concatenatedAudio = concatenatedAudio;
-  state.srtContent = srtContent;
 
   return state;
 }
 
 /**
- * Regenerate a single segment, then re-concat and re-SRT.
+ * Regenerate a single segment, then re-concat.
  * Saves old version to history before regenerating.
  * Corresponds to AC-27, AC-28, AC-30.
  */
@@ -317,11 +306,11 @@ export async function regenerateSegment(
   }
   callbacks?.onSegmentUpdate?.(index, { ...segment });
 
-  // AC-28: Re-concat + re-SRT
+  // AC-28: Re-concat
   const crossfadeDuration = rConfig.crossfadeDuration ?? 0.05;
   const fadeCurve = rConfig.fadeCurve ?? "tri";
 
-  const { concatenatedAudio, srtContent } = await recombineOutputs(
+  const { concatenatedAudio } = await recombineOutputs(
     state.segments,
     crossfadeDuration,
     fadeCurve,
@@ -329,7 +318,6 @@ export async function regenerateSegment(
   );
 
   state.concatenatedAudio = concatenatedAudio;
-  state.srtContent = srtContent;
 
   return state;
 }
@@ -398,11 +386,11 @@ export async function regenerateSentence(
     callbacks?.onProgress?.(completed, total);
   });
 
-  // Re-concat + re-SRT
+  // Re-concat
   const crossfadeDuration = rConfig.crossfadeDuration ?? 0.05;
   const fadeCurve = rConfig.fadeCurve ?? "tri";
 
-  const { concatenatedAudio, srtContent } = await recombineOutputs(
+  const { concatenatedAudio } = await recombineOutputs(
     state.segments,
     crossfadeDuration,
     fadeCurve,
@@ -410,7 +398,6 @@ export async function regenerateSentence(
   );
 
   state.concatenatedAudio = concatenatedAudio;
-  state.srtContent = srtContent;
 
   return state;
 }
