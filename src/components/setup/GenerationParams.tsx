@@ -1,5 +1,8 @@
+import { useState, useRef, useEffect } from "react";
 import { useProjectStore } from "../../stores/project-store.ts";
 import type { SegmentMode } from "../../utils/preprocessing.ts";
+
+const MODEL_PRESETS = ["MasterZhengyanKaishi", "MasterZhengyanFoJing"];
 
 const SEGMENT_MODES: { value: SegmentMode; label: string; desc: string }[] = [
   { value: "raw", label: "Raw", desc: "No splitting" },
@@ -10,6 +13,18 @@ const SEGMENT_MODES: { value: SegmentMode; label: string; desc: string }[] = [
 export function GenerationParams() {
   const config = useProjectStore((s) => s.config);
   const updateConfig = useProjectStore((s) => s.updateConfig);
+
+  const [modelOpen, setModelOpen] = useState(false);
+  const modelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (modelRef.current && !modelRef.current.contains(e.target as Node))
+        setModelOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   return (
     <div className="bg-bg-secondary rounded-lg border border-border-secondary p-6 flex flex-col gap-4">
@@ -38,17 +53,46 @@ export function GenerationParams() {
           <label className="text-xs font-medium text-text-secondary">
             Model <span className="text-status-error">*</span>
           </label>
-          <input
-            list="model-options"
-            value={config.modelId}
-            onChange={(e) => updateConfig({ modelId: e.target.value })}
-            placeholder="Select or enter model ID"
-            className="bg-bg-primary text-text-primary text-sm font-mono rounded-md border border-border-input px-3 py-2.5 focus:outline-none focus:border-accent-primary"
-          />
-          <datalist id="model-options">
-            <option value="MasterZhengyanKaishi" />
-            <option value="MasterZhengyanFoJing" />
-          </datalist>
+          <div ref={modelRef} className="relative">
+            <div className="flex items-center bg-bg-primary rounded-md border border-border-input focus-within:border-accent-primary">
+              <input
+                value={config.modelId}
+                onChange={(e) => updateConfig({ modelId: e.target.value })}
+                onFocus={() => setModelOpen(true)}
+                placeholder="Select or enter model ID"
+                className="flex-1 bg-transparent text-text-primary text-sm font-mono px-3 py-2.5 focus:outline-none min-w-0"
+              />
+              <button
+                type="button"
+                onClick={() => setModelOpen((v) => !v)}
+                className="px-2 py-2.5 text-text-muted hover:text-text-secondary"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+            </div>
+            {modelOpen && (
+              <ul className="absolute z-10 mt-1 w-full bg-bg-primary border border-border-input rounded-md shadow-lg max-h-48 overflow-auto">
+                {MODEL_PRESETS.map((id) => (
+                  <li
+                    key={id}
+                    onClick={() => {
+                      updateConfig({ modelId: id });
+                      setModelOpen(false);
+                    }}
+                    className={`px-3 py-2 text-sm font-mono cursor-pointer transition-colors ${
+                      config.modelId === id
+                        ? "bg-accent-primary/10 text-accent-primary"
+                        : "text-text-primary hover:bg-bg-tertiary"
+                    }`}
+                  >
+                    {id}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
 
