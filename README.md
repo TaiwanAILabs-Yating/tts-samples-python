@@ -262,6 +262,7 @@ output.wav                       # 最終串接的完整音檔
 - 鍵盤快捷鍵加速審核流程
 - 音訊交叉淡化串接（FFmpeg.wasm，瀏覽器端）
 - SRT 字幕自動生成
+- 台語斷詞（逆向最長詞匹配）+ 台羅拼音標注（僅台語模式）
 
 ### 技術棧
 
@@ -421,6 +422,27 @@ npm run dev
    - metadata.json 中的參數快照讓我們可以完整重現您的生成情境
    - Notes 中的描述幫助我們定位具體問題
 
+### 台語斷詞與台羅拼音
+
+當語言設為台語（`nan`）時，Workspace 的每個 segment 會自動顯示斷詞結果與台羅拼音標注。
+
+**功能說明：**
+- 自動斷詞：使用逆向最長詞匹配（backward maximum match）搭配 ~40 萬詞的台語詞典
+- 台羅標注：每個詞顯示標準台羅拼音（Tâi-lô，含變音符號），支援多音字候選
+- 拼音替換：點擊詞可切換為台羅拼音，重新生成時 TTS API 會收到台羅替換後的文字
+- 自訂斷句：底部輸入框可手動調整斷詞結果（空格分隔）
+- Metadata 記錄：匯出的 metadata.json 包含完整的斷詞與拼音選擇記錄
+
+**詞典預處理：**
+
+如需更新詞典，執行以下指令重新產生 `public/lexicon-nan.json`：
+
+```bash
+npx tsx scripts/preprocess-lexicon.ts /path/to/lexicon.txt
+```
+
+輸入格式為 Kaldi decode lexicon（TSV：`詞\tIPA音標`），腳本會自動篩選台語條目並轉換為台羅拼音。
+
 ### Web UI 注意事項
 
 - **資料持久化限制**：
@@ -454,6 +476,7 @@ src/
 ├── hooks/
 │   ├── useGeneration.ts     # TTS 生成調度
 │   ├── useAudioPlayer.ts    # Web Audio API 播放控制
+│   ├── useLexicon.ts        # 台語詞典自動載入 hook
 │   └── useKeyboardShortcuts.ts  # 鍵盤快捷鍵
 │
 ├── services/
@@ -461,13 +484,16 @@ src/
 │   ├── tts-client.ts        # TTS API HTTP 客戶端
 │   ├── batch-generator.ts   # 重試 + 平行執行
 │   ├── ffmpeg-service.ts    # FFmpeg.wasm 音訊處理
+│   ├── lexicon-service.ts   # 台語詞典服務（斷詞、台羅、驗證）
 │   └── auth.ts              # API 認證
 │
 ├── stores/
-│   └── project-store.ts     # Zustand 全域狀態
+│   ├── project-store.ts     # Zustand 全域狀態
+│   └── lexicon-store.ts     # 台語詞典 store（延遲載入）
 │
 ├── utils/
 │   ├── preprocessing.ts     # 文字分段 & token 計算
+│   ├── ipa-to-tailo.ts      # IPA 音標 → 台羅拼音轉換
 │   ├── audio.ts             # WAV 解析
 │   └── srt.ts               # SRT 字幕生成
 │
