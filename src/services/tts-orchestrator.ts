@@ -19,6 +19,14 @@ export interface HistoryEntry {
   timestamp: number;
 }
 
+export interface WordSegState {
+  word: string;
+  tailo: string;         // 當前選中的台羅
+  tailoList: string[];   // 所有候選發音
+  inVocab: boolean;
+  useTailo: boolean;     // true = 送 TTS 時用台羅替換該詞
+}
+
 export interface SegmentState {
   index: number;
   text: string;
@@ -28,6 +36,7 @@ export interface SegmentState {
   error?: string;
   attempts: number;
   history: HistoryEntry[];
+  wordSegmentation?: WordSegState[];
 }
 
 export interface PipelineState {
@@ -62,6 +71,7 @@ export interface RegenerateConfig {
   language?: string;
   promptLanguage?: string;
   addEndSilence?: boolean;
+  concurrency?: number;
   maxRetries?: number;
   retryBaseDelay?: number;
   crossfadeDuration?: number;
@@ -76,6 +86,20 @@ export interface OrchestratorCallbacks {
 }
 
 // --- Internal helpers ---
+
+/**
+ * Build the text to send to TTS API.
+ * If the segment has word segmentation with useTailo flags,
+ * replace those words with their Tailo romanization.
+ */
+function buildTtsText(segment: SegmentState): string {
+  if (!segment.wordSegmentation?.length) {
+    return segment.text;
+  }
+  return segment.wordSegmentation
+    .map((ws) => (ws.useTailo ? ws.tailo : ws.word))
+    .join("");
+}
 
 function buildSegmentStates(texts: string[]): SegmentState[] {
   return texts.map((text, index) => ({
@@ -202,7 +226,7 @@ export async function generateAll(
     callbacks?.onSegmentUpdate?.(i, { ...segment });
 
     const req: ZeroShotRequest = {
-      text: segment.text,
+      text: buildTtsText(segment),
       promptVoiceText: config.promptVoiceText,
       promptVoiceAssetKey,
       promptVoiceUrl: "",
@@ -279,7 +303,7 @@ export async function regenerateSegment(
   callbacks?.onSegmentUpdate?.(index, { ...segment });
 
   const req: ZeroShotRequest = {
-    text: segment.text,
+    text: buildTtsText(segment),
     promptVoiceText: rConfig.promptVoiceText ?? "",
     promptVoiceAssetKey: state.promptVoiceAssetKey,
     promptVoiceUrl: "",
@@ -352,7 +376,7 @@ export async function regenerateSentence(
     callbacks?.onSegmentUpdate?.(i, { ...segment });
 
     const req: ZeroShotRequest = {
-      text: segment.text,
+      text: buildTtsText(segment),
       promptVoiceText: rConfig.promptVoiceText ?? "",
       promptVoiceAssetKey: state.promptVoiceAssetKey!,
       promptVoiceUrl: "",
@@ -381,7 +405,7 @@ export async function regenerateSentence(
     });
   });
 
-  const concurrency = rConfig.config?.concurrency ?? 3;
+  const concurrency = rConfig.concurrency ?? 3;
   await generateBatch(tasks, concurrency, (completed, total) => {
     callbacks?.onProgress?.(completed, total);
   });

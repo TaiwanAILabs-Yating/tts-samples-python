@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { PipelineState, SegmentState } from "../services/tts-orchestrator";
+import type { PipelineState, SegmentState, WordSegState } from "../services/tts-orchestrator";
 import type { SegmentMode } from "../utils/preprocessing";
 import type { FadeCurve } from "../services/ffmpeg-service";
 
@@ -84,6 +84,7 @@ interface ProjectStore {
 
   // Segment-level update
   updateSegmentText: (sentenceIndex: number, segmentIndex: number, text: string) => void;
+  updateSegmentWordSeg: (sentenceIndex: number, segmentIndex: number, wordSeg: WordSegState[]) => void;
 
   // Selection
   selectedSentenceIndex: number;
@@ -158,6 +159,16 @@ export const useProjectStore = create<ProjectStore>()((set, get) => ({
         if (i !== sentenceIndex || !s.pipeline) return s;
         const newSegments = [...s.pipeline.segments];
         newSegments[segmentIndex] = { ...newSegments[segmentIndex], text };
+        return { ...s, pipeline: { ...s.pipeline, segments: newSegments } };
+      }),
+    })),
+
+  updateSegmentWordSeg: (sentenceIndex, segmentIndex, wordSeg) =>
+    set((state) => ({
+      sentences: state.sentences.map((s, i) => {
+        if (i !== sentenceIndex || !s.pipeline) return s;
+        const newSegments = [...s.pipeline.segments];
+        newSegments[segmentIndex] = { ...newSegments[segmentIndex], wordSegmentation: wordSeg };
         return { ...s, pipeline: { ...s.pipeline, segments: newSegments } };
       }),
     })),
