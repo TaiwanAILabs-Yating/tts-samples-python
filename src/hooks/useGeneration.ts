@@ -146,7 +146,7 @@ export function useGeneration() {
 
   const handleRegenerateSentence = useCallback(
     async (sentenceIndex: number) => {
-      if (isGenerating) return; // Block regeneration during batch generation
+      if (isGenerating) return;
       const sentence = useProjectStore.getState().sentences[sentenceIndex];
       if (!sentence?.pipeline) return;
 
@@ -207,8 +207,7 @@ export function useGeneration() {
 
   const handleRegenerateSegment = useCallback(
     async (sentenceIndex: number, segmentIndex: number) => {
-      if (isGenerating) return; // Block regeneration during batch generation
-      // Read latest state from store to ensure wordSegmentation is up-to-date
+      if (isGenerating) return;
       const sentence = useProjectStore.getState().sentences[sentenceIndex];
       if (!sentence?.pipeline) return;
 
@@ -272,7 +271,7 @@ export function useGeneration() {
     [isGenerating, config, updateSentence]
   );
 
-  // Regeneration and approve/reject are blocked while batch generation is in progress
+
   const canRegenerate = !isGenerating;
   const canApproveReject = !isGenerating;
 
