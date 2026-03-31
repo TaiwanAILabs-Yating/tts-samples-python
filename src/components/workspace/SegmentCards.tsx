@@ -1,7 +1,51 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useProjectStore } from "../../stores/project-store.ts";
 import { useLexicon } from "../../hooks/useLexicon.ts";
 import { WordSegmentation } from "./WordSegmentation.tsx";
+
+/** Plays a single segment's audio ArrayBuffer. Returns cleanup function. */
+function useSegmentPlayer() {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const urlRef = useRef<string | null>(null);
+  const [playingIndex, setPlayingIndex] = useState<number | null>(null);
+
+  const stop = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    }
+    setPlayingIndex(null);
+  }, []);
+
+  const play = useCallback((index: number, audio: ArrayBuffer) => {
+    stop();
+    const blob = new Blob([audio], { type: "audio/wav" });
+    const url = URL.createObjectURL(blob);
+    urlRef.current = url;
+    const el = new Audio(url);
+    audioRef.current = el;
+    setPlayingIndex(index);
+    el.onended = () => stop();
+    el.play();
+  }, [stop]);
+
+  const toggle = useCallback((index: number, audio: ArrayBuffer) => {
+    if (playingIndex === index) {
+      stop();
+    } else {
+      play(index, audio);
+    }
+  }, [playingIndex, play, stop]);
+
+  // Cleanup on unmount
+  useEffect(() => () => stop(), [stop]);
+
+  return { playingIndex, toggle };
+}
 
 const SEGMENT_COLORS = [
   "#7C3AED", // purple
@@ -69,6 +113,7 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
   const updateSegmentText = useProjectStore((s) => s.updateSegmentText);
   const updateSegmentWordSeg = useProjectStore((s) => s.updateSegmentWordSeg);
   const { isAvailable: isWordSegAvailable } = useLexicon();
+  const { playingIndex, toggle: togglePlay } = useSegmentPlayer();
 
   const sentence = sentences[selectedIndex];
   const segments = sentence?.pipeline?.segments ?? [];
@@ -132,33 +177,6 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
                 </div>
               </div>
 
-              {/* Actions */}
-              <div className="flex items-center gap-2 ml-3">
-                <button
-                  onClick={(e) => { e.stopPropagation(); onRegenerateSegment(selectedIndex, i); }}
-                  disabled={isAnyRegenerating}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border-input text-[12px] font-medium transition-colors ${
-                    isAnyRegenerating
-                      ? "opacity-50 cursor-not-allowed text-text-muted"
-                      : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
-                  }`}
-                  title="Regenerate this segment only"
-                >
-                  <svg
-                    className={`w-3.5 h-3.5 ${isRegenerating ? "animate-spin" : ""}`}
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                    <path d="M21 3v5h-5" />
-                  </svg>
-                  {isRegenerating ? "..." : "Regen"}
-                </button>
-              </div>
             </div>
 
             {/* Word Segmentation (Taiwanese only) */}
@@ -173,7 +191,7 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
               <button
                 onClick={(e) => { e.stopPropagation(); onRegenerateSegment(selectedIndex, i); }}
                 disabled={isRegenDisabled}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border-input text-[12px] font-medium transition-colors ${
+                className={`flex items-center justify-center w-8 h-8 rounded-md border border-border-input transition-colors ${
                   isRegenDisabled
                     ? "opacity-50 cursor-not-allowed text-text-muted"
                     : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
@@ -192,7 +210,30 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
                   <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
                   <path d="M21 3v5h-5" />
                 </svg>
-                {isRegenerating ? "..." : "Regen"}
+              </button>
+              {/* Play segment audio */}
+              <button
+                onClick={(e) => { e.stopPropagation(); if (segment.audio) togglePlay(i, segment.audio); }}
+                disabled={!segment.audio}
+                className={`flex items-center justify-center w-8 h-8 rounded-md border border-border-input transition-colors ${
+                  !segment.audio
+                    ? "opacity-30 cursor-not-allowed text-text-muted"
+                    : playingIndex === i
+                      ? "text-accent-primary bg-accent-primary/10 border-accent-primary"
+                      : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
+                }`}
+                title={segment.audio ? "Play this segment" : "No audio available"}
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  {playingIndex === i ? (
+                    <>
+                      <rect x="6" y="4" width="4" height="16" rx="1" />
+                      <rect x="14" y="4" width="4" height="16" rx="1" />
+                    </>
+                  ) : (
+                    <path d="M5 3l14 9-14 9V3z" />
+                  )}
+                </svg>
               </button>
             </div>
           </div>
