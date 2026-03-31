@@ -17,6 +17,7 @@ interface SegmentCardsProps {
   onSegmentClick?: (segmentIndex: number) => void;
   activeSegmentIndex?: number;
   regeneratingSegmentKey?: string | null;
+  canRegenerate: boolean;
 }
 
 function EditableText({ text, onSave }: { text: string; onSave: (t: string) => void }) {
@@ -62,7 +63,7 @@ function EditableText({ text, onSave }: { text: string; onSave: (t: string) => v
   );
 }
 
-export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmentIndex, regeneratingSegmentKey }: SegmentCardsProps) {
+export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmentIndex, regeneratingSegmentKey, canRegenerate }: SegmentCardsProps) {
   const sentences = useProjectStore((s) => s.sentences);
   const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
   const updateSegmentText = useProjectStore((s) => s.updateSegmentText);
@@ -91,7 +92,7 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
             ? `${segment.duration.toFixed(2)}s`
             : "--";
         const isRegenerating = segment.status === "generating";
-        const isAnyRegenerating = regeneratingSegmentKey !== null;
+        const isRegenDisabled = !canRegenerate || regeneratingSegmentKey !== null;
         const isActive = activeSegmentIndex === i;
 
         return (
@@ -166,6 +167,34 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
               initialWordSeg={segment.wordSegmentation}
               onWordStatesChange={(states) => updateSegmentWordSeg(selectedIndex, i, states)}
             />
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 ml-3">
+              <button
+                onClick={(e) => { e.stopPropagation(); onRegenerateSegment(selectedIndex, i); }}
+                disabled={isRegenDisabled}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border-input text-[12px] font-medium transition-colors ${
+                  isRegenDisabled
+                    ? "opacity-50 cursor-not-allowed text-text-muted"
+                    : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
+                }`}
+                title={canRegenerate ? "Regenerate this segment only" : "生成中，請稍候"}
+              >
+                <svg
+                  className={`w-3.5 h-3.5 ${isRegenerating ? "animate-spin" : ""}`}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                </svg>
+                {isRegenerating ? "..." : "Regen"}
+              </button>
+            </div>
           </div>
         );
       })}
