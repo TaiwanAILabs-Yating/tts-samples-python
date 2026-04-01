@@ -1,6 +1,7 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { useProjectStore } from "../stores/project-store.ts";
+import { getStorageEstimate } from "../stores/audio-storage.ts";
 
 interface TopNavProps {
   projectName?: string;
@@ -18,6 +19,16 @@ export function TopNav({ projectName }: TopNavProps) {
   const savedProjects = useProjectStore((s) => s.savedProjects);
   const switchProject = useProjectStore((s) => s.switchProject);
   const deleteProject = useProjectStore((s) => s.deleteProject);
+
+  const [storageInfo, setStorageInfo] = useState<{ usageMB: number; quotaMB: number } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string; isCurrent: boolean } | null>(null);
+
+  // Fetch storage estimate when switcher opens
+  useEffect(() => {
+    if (switcherOpen) {
+      getStorageEstimate().then(setStorageInfo).catch(() => {});
+    }
+  }, [switcherOpen]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -132,30 +143,29 @@ export function TopNav({ projectName }: TopNavProps) {
                           {proj.projectName}
                         </span>
                       </div>
-                      {!proj.isCurrent && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteProject(proj.id);
-                          }}
-                          className="p-1 rounded hover:bg-bg-secondary transition-colors shrink-0"
-                          title="Delete project"
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirm({ id: proj.id, name: proj.projectName, isCurrent: proj.isCurrent });
+                          setSwitcherOpen(false);
+                        }}
+                        className="p-1 rounded hover:bg-bg-secondary transition-colors shrink-0"
+                        title="刪除專案"
+                      >
+                        <svg
+                          className="w-3.5 h-3.5 text-text-muted hover:text-status-rejected"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
                         >
-                          <svg
-                            className="w-3.5 h-3.5 text-text-muted hover:text-status-rejected"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M3 6h18" />
-                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                          </svg>
-                        </button>
-                      )}
+                          <path d="M3 6h18" />
+                          <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                          <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                        </svg>
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -184,6 +194,16 @@ export function TopNav({ projectName }: TopNavProps) {
                   </svg>
                   <span className="text-[13px] font-medium">New Project</span>
                 </button>
+
+                {/* Storage info */}
+                {storageInfo && (
+                  <>
+                    <div className="h-px bg-border mx-1 mt-1" />
+                    <div className="px-3 py-2 text-[11px] text-text-muted">
+                      儲存空間：{storageInfo.usageMB} MB / {storageInfo.quotaMB} MB
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -223,6 +243,53 @@ export function TopNav({ projectName }: TopNavProps) {
           </button>
         )}
       </div>
+      {/* Delete Confirm Dialog */}
+      {deleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setDeleteConfirm(null)}
+        >
+          <div
+            className="bg-bg-secondary border border-border rounded-lg w-full max-w-[400px] p-6 flex flex-col items-center gap-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Icon */}
+            <div className="w-12 h-12 rounded-full bg-status-error/15 flex items-center justify-center">
+              <svg className="w-6 h-6 text-status-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18" />
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+              </svg>
+            </div>
+            <h3 className="text-base font-semibold text-text-primary text-center">
+              刪除專案
+            </h3>
+            <p className="text-sm text-text-secondary leading-relaxed text-center">
+              確定要刪除「{deleteConfirm.name}」嗎？專案資料與音檔快取都會被移除，此操作無法復原。
+            </p>
+            <div className="flex gap-3 w-full mt-2">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 text-sm font-medium text-text-secondary h-10 rounded-lg border border-border-secondary hover:bg-bg-tertiary transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  deleteProject(deleteConfirm.id);
+                  if (deleteConfirm.isCurrent) {
+                    navigate("/setup");
+                  }
+                  setDeleteConfirm(null);
+                }}
+                className="flex-1 text-sm font-semibold text-white h-10 rounded-lg bg-status-error hover:opacity-90 transition-opacity"
+              >
+                刪除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 }
