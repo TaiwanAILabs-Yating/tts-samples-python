@@ -328,3 +328,29 @@ export function validateSentenceLengths(
 
   return { valid: violations.length === 0, violations };
 }
+
+/** Maximum sentences per project. */
+export const MAX_SENTENCES = 200;
+
+/** Maximum simultaneous projects. */
+export const MAX_PROJECTS = 5;
+
+export interface SentenceCountValidation {
+  valid: boolean;
+  count: number;
+  max: number;
+}
+
+/**
+ * Validate that the number of sentences does not exceed the maximum.
+ *
+ * @param sentences - Array of sentence strings, or a count number
+ * @param max - Maximum allowed (default: 200)
+ */
+export function validateSentenceCount(
+  sentences: string[] | number,
+  max: number = MAX_SENTENCES,
+): SentenceCountValidation {
+  const count = typeof sentences === "number" ? sentences : sentences.length;
+  return { valid: count <= max, count, max };
+}
