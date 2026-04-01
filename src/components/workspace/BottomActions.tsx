@@ -3,9 +3,10 @@ import { useProjectStore } from "../../stores/project-store.ts";
 interface BottomActionsProps {
   onRegenerateSentence: (sentenceIndex: number) => void;
   isSegmentRegenerating?: boolean;
+  canRegenerate: boolean;
 }
 
-export function BottomActions({ onRegenerateSentence, isSegmentRegenerating }: BottomActionsProps) {
+export function BottomActions({ onRegenerateSentence, isSegmentRegenerating, canRegenerate }: BottomActionsProps) {
   const sentences = useProjectStore((s) => s.sentences);
   const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
 
@@ -13,7 +14,7 @@ export function BottomActions({ onRegenerateSentence, isSegmentRegenerating }: B
   if (!sentence) return null;
 
   const isGenerating = sentence.status === "generating";
-  const isDisabled = isGenerating || !sentence.pipeline || !!isSegmentRegenerating;
+  const isDisabled = !canRegenerate || isGenerating || !sentence.pipeline || !!isSegmentRegenerating;
 
   return (
     <div className="flex items-center">
@@ -25,7 +26,7 @@ export function BottomActions({ onRegenerateSentence, isSegmentRegenerating }: B
             ? "opacity-50 cursor-not-allowed"
             : "hover:bg-bg-tertiary"
         }`}
-        title="Regenerate all segments in this sentence"
+        title={canRegenerate ? "Regenerate all segments in this sentence" : "生成中，請稍候"}
       >
         <svg
           className={`w-3.5 h-3.5 text-text-secondary ${isGenerating ? "animate-spin" : ""}`}

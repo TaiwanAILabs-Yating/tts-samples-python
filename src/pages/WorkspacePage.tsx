@@ -25,6 +25,8 @@ export function WorkspacePage() {
 
   const {
     isGenerating,
+    canRegenerate,
+    canApproveReject,
     progress,
     regeneratingSegmentKey,
     handleGenerateAll,
@@ -67,6 +69,7 @@ export function WorkspacePage() {
     onNextSentence: handleNextSentence,
     onApprove: handleApprove,
     onReject: handleReject,
+    isGenerating,
   });
 
   // Eagerly preload FFmpeg WASM on workspace mount
@@ -153,7 +156,7 @@ export function WorkspacePage() {
             <>
               {/* Fixed header + waveform (non-scrolling) */}
               <div className="shrink-0 px-6 pt-6 pb-2 flex flex-col gap-5 bg-bg-primary">
-                <WorkspaceHeader />
+                <WorkspaceHeader canApproveReject={canApproveReject} />
                 <WaveformPlayer
                   ref={waveformRef}
                   onCurrentSegmentChange={setActiveSegmentIndex}
@@ -166,10 +169,12 @@ export function WorkspacePage() {
                 onSegmentClick={(segIndex) => waveformRef.current?.seekToSegmentIndex(segIndex)}
                 activeSegmentIndex={activeSegmentIndex}
                 regeneratingSegmentKey={regeneratingSegmentKey}
+                canRegenerate={canRegenerate}
               />
               <BottomActions
                 onRegenerateSentence={handleRegenerateSentence}
                 isSegmentRegenerating={regeneratingSegmentKey !== null}
+                canRegenerate={canRegenerate}
               />
               {/* Notes */}
               <div className="flex flex-col gap-2">

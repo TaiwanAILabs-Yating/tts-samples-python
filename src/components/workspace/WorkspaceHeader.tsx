@@ -10,7 +10,11 @@ const STATUS_STYLE: Record<SentenceStatus, { bg: string; text: string; label: st
   error: { bg: "#EF44441A", text: "#EF4444", label: "Error" },
 };
 
-export function WorkspaceHeader() {
+interface WorkspaceHeaderProps {
+  canApproveReject: boolean;
+}
+
+export function WorkspaceHeader({ canApproveReject }: WorkspaceHeaderProps) {
   const sentences = useProjectStore((s) => s.sentences);
   const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
   const updateSentence = useProjectStore((s) => s.updateSentence);
@@ -80,8 +84,9 @@ export function WorkspaceHeader() {
           {/* Approve */}
           <button
             onClick={() => updateSentence(selectedIndex, { status: "approved" })}
-            disabled={isGenerating}
+            disabled={!canApproveReject}
             className="flex items-center gap-1.5 text-xs font-medium text-white bg-status-approved rounded-md px-3 py-1.5 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+            title={canApproveReject ? "Approve this sentence" : "生成中，請稍候"}
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
@@ -92,8 +97,9 @@ export function WorkspaceHeader() {
           {/* Reject */}
           <button
             onClick={() => updateSentence(selectedIndex, { status: "rejected" })}
-            disabled={isGenerating}
+            disabled={!canApproveReject}
             className="flex items-center gap-1.5 text-xs font-medium text-status-error rounded-md px-3 py-1.5 border border-status-error hover:bg-status-error/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title={canApproveReject ? "Reject this sentence" : "生成中，請稍候"}
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6 6 18" />
