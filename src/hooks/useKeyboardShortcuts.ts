@@ -45,10 +45,12 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
           break;
         case "a":
         case "A":
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
           if (!config.isGenerating) config.onApprove();
           break;
         case "r":
         case "R":
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
           if (!config.isGenerating) config.onReject();
           break;
       }
