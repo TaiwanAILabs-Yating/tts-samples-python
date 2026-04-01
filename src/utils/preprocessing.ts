@@ -295,37 +295,32 @@ export function generateUttId(basename: string, index: number): string {
   return `${basename}_${String(index).padStart(5, "0")}`;
 }
 
-/**
- * Validation result for sentence length check.
- */
+/** Maximum characters per sentence line. */
+export const MAX_CHARS_PER_LINE = 1000;
+
 export interface SentenceLengthValidation {
   valid: boolean;
   violations: { line: number; text: string; length: number }[];
 }
 
 /**
- * Validate that no sentence (line) exceeds the maximum character count.
- * Each non-empty line in the input text is treated as one sentence.
+ * Validate that no line exceeds the maximum character count.
  *
- * @param text - Raw input text (newline-separated sentences)
- * @param maxChars - Maximum characters per sentence (default: 1000)
- * @returns Validation result with list of violating lines
+ * @param text - Raw input text (lines separated by \n)
+ * @param maxChars - Maximum characters per line (default: 1000)
  */
 export function validateSentenceLengths(
   text: string,
-  maxChars: number = 1000
+  maxChars: number = MAX_CHARS_PER_LINE,
 ): SentenceLengthValidation {
   const lines = text.split("\n");
   const violations: SentenceLengthValidation["violations"] = [];
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (!line) continue;
     if (line.length > maxChars) {
       violations.push({ line: i + 1, text: line, length: line.length });
     }
   }
-
   return { valid: violations.length === 0, violations };
 }
 
