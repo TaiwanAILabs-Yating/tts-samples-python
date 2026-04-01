@@ -1,7 +1,13 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { PipelineState, SegmentState, WordSegState } from "../services/tts-orchestrator";
 import type { SegmentMode } from "../utils/preprocessing";
+import { MAX_PROJECTS } from "../utils/preprocessing";
 import type { FadeCurve } from "../services/ffmpeg-service";
+import {
+  saveApprovedAudio,
+  deleteProjectAudio,
+} from "./audio-storage";
 
 // --- Sentence-level state ---
 
@@ -129,7 +135,27 @@ function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-export const useProjectStore = create<ProjectStore>()((set, get) => ({
+/**
+ * Strip non-serializable data (audio ArrayBuffers) from sentences for localStorage.
+ */
+function stripAudioFromSentences(sentences: SentenceState[]): SentenceState[] {
+  return sentences.map((s) => {
+    if (!s.pipeline) return s;
+    return {
+      ...s,
+      pipeline: {
+        ...s.pipeline,
+        concatenatedAudio: undefined,
+        segments: s.pipeline.segments.map((seg) => ({
+          ...seg,
+          audio: undefined,
+        })),
+      },
+    };
+  });
+}
+
+export const useProjectStore = create<ProjectStore>()(persist((set, get) => ({
   projectId: generateId(),
   projectName: "My Project",
   setProjectName: (projectName) => set({ projectName }),
@@ -146,12 +172,24 @@ export const useProjectStore = create<ProjectStore>()((set, get) => ({
 
   sentences: [],
   setSentences: (sentences) => set({ sentences }),
-  updateSentence: (index, partial) =>
+  updateSentence: (index, partial) => {
     set((state) => ({
       sentences: state.sentences.map((s, i) =>
         i === index ? { ...s, ...partial } : s,
       ),
-    })),
+    }));
+    // Persist audio to IndexedDB when a sentence is approved
+    if (partial.status === "approved") {
+      const state = get();
+      const sentence = state.sentences[index];
+      const audio = sentence?.pipeline?.concatenatedAudio;
+      if (audio) {
+        saveApprovedAudio(state.projectId, index, audio).catch((err) =>
+          console.error(`Failed to save approved audio for sentence ${index}:`, err),
+        );
+      }
+    }
+  },
 
   updateSegmentText: (sentenceIndex, segmentIndex, text) =>
     set((state) => ({
@@ -241,6 +279,10 @@ export const useProjectStore = create<ProjectStore>()((set, get) => ({
     set((s) => ({
       savedProjects: s.savedProjects.filter((p) => p.id !== id),
     }));
+    // Clean up IndexedDB audio for deleted project
+    deleteProjectAudio(id).catch((err) =>
+      console.error(`Failed to delete audio for project ${id}:`, err),
+    );
   },
 
   reset: () => {
@@ -258,4 +300,19 @@ export const useProjectStore = create<ProjectStore>()((set, get) => ({
       autoGenerate: true,
     });
   },
+}), {
+  name: "tts-project-store",
+  partialize: (state) => ({
+    projectId: state.projectId,
+    projectName: state.projectName,
+    config: (() => {
+      const { promptVoiceFile: _, ...rest } = state.config;
+      return rest;
+    })(),
+    inputMode: state.inputMode,
+    rawText: state.rawText,
+    sentences: stripAudioFromSentences(state.sentences),
+    selectedSentenceIndex: state.selectedSentenceIndex,
+    savedProjects: state.savedProjects,
+  }),
 }));
