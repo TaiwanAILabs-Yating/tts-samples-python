@@ -7,6 +7,7 @@ import type { FadeCurve } from "../services/ffmpeg-service";
 import {
   saveApprovedAudio,
   deleteProjectAudio,
+  loadPromptVoice,
 } from "./audio-storage";
 
 // --- Sentence-level state ---
@@ -271,18 +272,40 @@ export const useProjectStore = create<ProjectStore>()(persist((set, get) => ({
       isSettingsOpen: false,
       autoGenerate: false,
     });
+
+    // Restore prompt voice from IndexedDB for the switched project
+    loadPromptVoice(target.id).then((blob) => {
+      if (blob) {
+        set((s) => ({ config: { ...s.config, promptVoiceFile: blob } }));
+      }
+    }).catch((err) =>
+      console.error(`Failed to load prompt voice for project ${target.id}:`, err),
+    );
   },
 
   deleteProject: (id: string) => {
     const state = get();
-    if (id === state.projectId) return; // Cannot delete active project
+    // Clean up IndexedDB audio
+    deleteProjectAudio(id).catch(console.error);
+    if (id === state.projectId) {
+      // Deleting the active project — reset to fresh state
+      set((s) => ({
+        projectId: generateId(),
+        projectName: "My Project",
+        config: { ...defaultConfig },
+        inputMode: "direct" as const,
+        rawText: "",
+        sentences: [],
+        selectedSentenceIndex: 0,
+        isSettingsOpen: false,
+        autoGenerate: true,
+        savedProjects: s.savedProjects.filter((p) => p.id !== id),
+      }));
+      return;
+    }
     set((s) => ({
       savedProjects: s.savedProjects.filter((p) => p.id !== id),
     }));
-    // Clean up IndexedDB audio for deleted project
-    deleteProjectAudio(id).catch((err) =>
-      console.error(`Failed to delete audio for project ${id}:`, err),
-    );
   },
 
   reset: () => {
