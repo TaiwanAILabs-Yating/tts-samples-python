@@ -21,7 +21,7 @@ export function TextInputCard() {
   const charCount = rawText.length;
   const tokenCount = rawText ? countTokens(rawText) : 0;
 
-  // Real-time sentence length validation
+  // Validate sentence lengths (per-line 1000 char limit)
   const lengthValidation = useMemo(
     () => (rawText ? validateSentenceLengths(rawText) : null),
     [rawText],
@@ -223,18 +223,13 @@ export function TextInputCard() {
         </div>
       )}
 
-      {/* Validation error */}
+      {/* Sentence length errors */}
       {lengthValidation && !lengthValidation.valid && (
         <div className="flex flex-col gap-1">
           {lengthValidation.violations.map((v) => (
-            <div key={v.line} className="flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 text-status-error shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 15a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm1-4a1 1 0 0 1-2 0V8a1 1 0 0 1 2 0v5z" />
-              </svg>
-              <span className="text-[11px] text-status-error">
-                第 {v.line} 行超出字數上限（{v.length} / 1000 字）
-              </span>
-            </div>
+            <p key={v.line} className="text-xs text-status-error">
+              第 {v.line} 行超出字數上限（{v.length}/1000 字）
+            </p>
           ))}
         </div>
       )}

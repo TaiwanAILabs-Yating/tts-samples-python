@@ -1,5 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useProjectStore } from "../../stores/project-store.ts";
+import { savePromptVoice } from "../../stores/audio-storage.ts";
+import { validatePromptDuration, MAX_PROMPT_DURATION } from "../../utils/audio.ts";
 
 export function VoiceSetup() {
   const config = useProjectStore((s) => s.config);
@@ -7,12 +9,15 @@ export function VoiceSetup() {
   const projectName = useProjectStore((s) => s.projectName);
   const setProjectName = useProjectStore((s) => s.setProjectName);
 
+  const projectId = useProjectStore((s) => s.projectId);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [durationError, setDurationError] = useState<string | null>(null);
 
   // Create object URL when file changes
   useEffect(() => {
@@ -52,13 +57,29 @@ export function VoiceSetup() {
   };
 
   const handleFile = useCallback(
-    (file: File) => {
+    async (file: File) => {
+      setDurationError(null);
+
+      // Validate duration
+      const result = await validatePromptDuration(file);
+      if (!result.valid) {
+        setDurationError(
+          `音檔長度 ${result.duration.toFixed(1)}s 超過上限 ${MAX_PROMPT_DURATION}s`,
+        );
+        return;
+      }
+
       updateConfig({
         promptVoiceFile: file,
         promptVoiceFileName: file.name,
       });
+
+      // Persist to IndexedDB
+      savePromptVoice(projectId, file).catch((err) =>
+        console.error("Failed to save prompt voice to IndexedDB:", err),
+      );
     },
-    [updateConfig],
+    [updateConfig, projectId],
   );
 
   const handleDrop = useCallback(
@@ -148,6 +169,11 @@ export function VoiceSetup() {
             }}
           />
         </div>
+
+        {/* Duration error */}
+        {durationError && (
+          <p className="text-xs text-status-error">{durationError}</p>
+        )}
 
         {/* Wave Preview (shown when file is selected) */}
         {config.promptVoiceFileName && (
