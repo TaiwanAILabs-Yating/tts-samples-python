@@ -294,3 +294,37 @@ export function splitSentences(
 export function generateUttId(basename: string, index: number): string {
   return `${basename}_${String(index).padStart(5, "0")}`;
 }
+
+/**
+ * Validation result for sentence length check.
+ */
+export interface SentenceLengthValidation {
+  valid: boolean;
+  violations: { line: number; text: string; length: number }[];
+}
+
+/**
+ * Validate that no sentence (line) exceeds the maximum character count.
+ * Each non-empty line in the input text is treated as one sentence.
+ *
+ * @param text - Raw input text (newline-separated sentences)
+ * @param maxChars - Maximum characters per sentence (default: 1000)
+ * @returns Validation result with list of violating lines
+ */
+export function validateSentenceLengths(
+  text: string,
+  maxChars: number = 1000
+): SentenceLengthValidation {
+  const lines = text.split("\n");
+  const violations: SentenceLengthValidation["violations"] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (line.length > maxChars) {
+      violations.push({ line: i + 1, text: line, length: line.length });
+    }
+  }
+
+  return { valid: violations.length === 0, violations };
+}

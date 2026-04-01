@@ -8,6 +8,7 @@ import {
   generateUttId,
   preprocessText,
   splitSentences,
+  validateSentenceLengths,
   stripPunctuation,
 } from "../utils/preprocessing";
 
@@ -272,5 +273,53 @@ describe("generateUttId", () => {
 
   it("handles custom basename", () => {
     expect(generateUttId("19981202_nan", 5)).toBe("19981202_nan_00005");
+  });
+});
+
+describe("validateSentenceLengths", () => {
+  it("returns valid for short lines", () => {
+    const result = validateSentenceLengths("短文\n第二行");
+    expect(result.valid).toBe(true);
+    expect(result.violations).toEqual([]);
+  });
+
+  it("skips empty lines", () => {
+    const result = validateSentenceLengths("第一行\n\n\n第二行");
+    expect(result.valid).toBe(true);
+    expect(result.violations).toEqual([]);
+  });
+
+  it("detects lines exceeding maxChars", () => {
+    const longLine = "字".repeat(1001);
+    const result = validateSentenceLengths(`短句\n${longLine}\n另一行`);
+    expect(result.valid).toBe(false);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0]).toEqual({
+      line: 2,
+      text: longLine,
+      length: 1001,
+    });
+  });
+
+  it("detects multiple violations", () => {
+    const long1 = "a".repeat(1001);
+    const long2 = "b".repeat(2000);
+    const result = validateSentenceLengths(`${long1}\n短\n${long2}`);
+    expect(result.valid).toBe(false);
+    expect(result.violations).toHaveLength(2);
+    expect(result.violations[0].line).toBe(1);
+    expect(result.violations[1].line).toBe(3);
+  });
+
+  it("respects custom maxChars", () => {
+    const result = validateSentenceLengths("12345", 3);
+    expect(result.valid).toBe(false);
+    expect(result.violations[0].length).toBe(5);
+  });
+
+  it("exactly 1000 chars is valid", () => {
+    const exactLine = "字".repeat(1000);
+    const result = validateSentenceLengths(exactLine);
+    expect(result.valid).toBe(true);
   });
 });

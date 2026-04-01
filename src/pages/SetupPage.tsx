@@ -6,7 +6,7 @@ import { TextInputCard } from "../components/setup/TextInputCard.tsx";
 import { GenerationParams } from "../components/setup/GenerationParams.tsx";
 import { AdvancedSettingsDrawer } from "../components/workspace/AdvancedSettingsDrawer.tsx";
 import { useProjectStore, type SentenceState } from "../stores/project-store.ts";
-import { splitSentences, countTokens } from "../utils/preprocessing.ts";
+import { splitSentences, countTokens, validateSentenceLengths } from "../utils/preprocessing.ts";
 import type { PipelineState, SegmentState as OrcSegmentState } from "../services/tts-orchestrator.ts";
 
 export function SetupPage() {
@@ -18,7 +18,8 @@ export function SetupPage() {
 
   const [showPreview, setShowPreview] = useState(false);
 
-  const canCreate = rawText.trim().length > 0 && config.promptVoiceText.trim().length > 0;
+  const lengthValid = rawText ? validateSentenceLengths(rawText).valid : true;
+  const canCreate = rawText.trim().length > 0 && config.promptVoiceText.trim().length > 0 && lengthValid;
 
   // Build sentences from rawText based on inputMode (same as WorkspacePage)
   const inputMode = useProjectStore((s) => s.inputMode);
