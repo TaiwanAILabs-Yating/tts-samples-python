@@ -146,7 +146,7 @@ export function useGeneration() {
 
   const handleRegenerateSentence = useCallback(
     async (sentenceIndex: number) => {
-      const sentence = sentences[sentenceIndex];
+      const sentence = useProjectStore.getState().sentences[sentenceIndex];
       if (!sentence?.pipeline) return;
 
       setGeneratingIndices((prev) => new Set(prev).add(sentenceIndex));
@@ -206,7 +206,8 @@ export function useGeneration() {
 
   const handleRegenerateSegment = useCallback(
     async (sentenceIndex: number, segmentIndex: number) => {
-      const sentence = sentences[sentenceIndex];
+      // Read latest state from store to ensure wordSegmentation is up-to-date
+      const sentence = useProjectStore.getState().sentences[sentenceIndex];
       if (!sentence?.pipeline) return;
 
       setGeneratingIndices((prev) => new Set(prev).add(sentenceIndex));

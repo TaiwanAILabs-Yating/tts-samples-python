@@ -209,7 +209,22 @@ export function SentenceSidebar({
               const start = offset;
               const dur = seg.duration ?? 0;
               offset += dur;
-              return { index: i, text: seg.text, start, end: offset };
+              const ttsText = seg.wordSegmentation?.length
+                ? seg.wordSegmentation.map((ws) => (ws.useTailo ? ws.tailo : ws.word)).join("")
+                : seg.text;
+              return {
+                index: i,
+                text: seg.text,
+                ttsText: ttsText !== seg.text ? ttsText : undefined,
+                start,
+                end: offset,
+                wordSegmentation: seg.wordSegmentation?.map((ws) => ({
+                  word: ws.word,
+                  tailo: ws.tailo,
+                  useTailo: ws.useTailo,
+                  inVocab: ws.inVocab,
+                })),
+              };
             });
           })(),
         })),

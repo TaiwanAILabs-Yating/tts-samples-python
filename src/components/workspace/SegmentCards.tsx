@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useProjectStore } from "../../stores/project-store.ts";
+import { useLexicon } from "../../hooks/useLexicon.ts";
+import { WordSegmentation } from "./WordSegmentation.tsx";
 
 const SEGMENT_COLORS = [
   "#7C3AED", // purple
@@ -64,6 +66,8 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
   const sentences = useProjectStore((s) => s.sentences);
   const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
   const updateSegmentText = useProjectStore((s) => s.updateSegmentText);
+  const updateSegmentWordSeg = useProjectStore((s) => s.updateSegmentWordSeg);
+  const { isAvailable: isWordSegAvailable } = useLexicon();
 
   const sentence = sentences[selectedIndex];
   const segments = sentence?.pipeline?.segments ?? [];
@@ -79,7 +83,7 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 isolate">
       {segments.map((segment, i) => {
         const color = SEGMENT_COLORS[i % SEGMENT_COLORS.length];
         const durStr =
@@ -93,64 +97,75 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
         return (
           <div
             key={i}
-            className={`flex items-center justify-between rounded-lg bg-bg-secondary px-4 py-3 border transition-colors hover:bg-bg-tertiary/30 cursor-pointer ${
+            className={`flex flex-col rounded-lg bg-bg-secondary px-4 py-3 border transition-colors hover:bg-bg-tertiary/30 cursor-pointer ${
               isActive ? "ring-1 ring-accent-primary" : ""
             }`}
             style={{ borderColor: isActive ? color : `${color}40` }}
             onClick={() => onSegmentClick?.(i)}
           >
-            {/* Left */}
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <div
-                className="w-1 h-8 rounded-sm shrink-0"
-                style={{ backgroundColor: color }}
-              />
-              <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                <EditableText
-                  text={segment.text}
-                  onSave={(t) => updateSegmentText(selectedIndex, i, t)}
+            <div className="flex items-center justify-between">
+              {/* Left */}
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div
+                  className="w-1 h-8 rounded-sm shrink-0"
+                  style={{ backgroundColor: color }}
                 />
-                <span className="text-[11px] font-mono text-text-muted">
-                  Seg {i + 1} · {durStr}
-                  {segment.status === "generating" && (
-                    <span className="text-blue-400 ml-2">generating...</span>
+                <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                  {!isWordSegAvailable && (
+                    <EditableText
+                      text={segment.text}
+                      onSave={(t) => updateSegmentText(selectedIndex, i, t)}
+                    />
                   )}
-                  {segment.status === "error" && (
-                    <span className="text-status-error ml-2">
-                      Error: {segment.error}
-                    </span>
-                  )}
-                </span>
+                  <span className="text-[11px] font-mono text-text-muted">
+                    Seg {i + 1} · {durStr}
+                    {segment.status === "generating" && (
+                      <span className="text-blue-400 ml-2">generating...</span>
+                    )}
+                    {segment.status === "error" && (
+                      <span className="text-status-error ml-2">
+                        Error: {segment.error}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 ml-3">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRegenerateSegment(selectedIndex, i); }}
+                  disabled={isAnyRegenerating}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border-input text-[12px] font-medium transition-colors ${
+                    isAnyRegenerating
+                      ? "opacity-50 cursor-not-allowed text-text-muted"
+                      : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
+                  }`}
+                  title="Regenerate this segment only"
+                >
+                  <svg
+                    className={`w-3.5 h-3.5 ${isRegenerating ? "animate-spin" : ""}`}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                    <path d="M21 3v5h-5" />
+                  </svg>
+                  {isRegenerating ? "..." : "Regen"}
+                </button>
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex items-center gap-2 ml-3">
-              <button
-                onClick={(e) => { e.stopPropagation(); onRegenerateSegment(selectedIndex, i); }}
-                disabled={isAnyRegenerating}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border-input text-[12px] font-medium transition-colors ${
-                  isAnyRegenerating
-                    ? "opacity-50 cursor-not-allowed text-text-muted"
-                    : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
-                }`}
-                title="Regenerate this segment only"
-              >
-                <svg
-                  className={`w-3.5 h-3.5 ${isRegenerating ? "animate-spin" : ""}`}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                  <path d="M21 3v5h-5" />
-                </svg>
-                {isRegenerating ? "..." : "Regen"}
-              </button>
-            </div>
+            {/* Word Segmentation (Taiwanese only) */}
+            <WordSegmentation
+              segmentText={segment.text}
+              initialWordSeg={segment.wordSegmentation}
+              onWordStatesChange={(states) => updateSegmentWordSeg(selectedIndex, i, states)}
+            />
           </div>
         );
       })}

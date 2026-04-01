@@ -230,6 +230,7 @@ Displays individual segment cards with editing capabilities.
 - Editable text (click to inline-edit, Enter/blur to save, Escape to cancel)
 - Regenerate button (re-generates single segment)
 - Status indicator (spinner during generation, error icon)
+- Word Segmentation section (Taiwanese `nan` only, via `WordSegmentation` sub-component)
 
 **Active segment highlighting:** Ring border when `activeSegmentIndex` matches.
 
@@ -237,6 +238,25 @@ Displays individual segment cards with editing capabilities.
 - `onRegenerateSegment: (sentenceIndex, segmentIndex) => void`
 - `onSegmentClick?: (segmentIndex: number) => void`
 - `activeSegmentIndex?: number`
+
+---
+
+### WordSegmentation (`src/components/workspace/WordSegmentation.tsx`)
+
+Word segmentation and Tailo pronunciation display for Taiwanese segments. Only renders when language is `nan`.
+
+**Features:**
+- Auto-segments text using backward maximum match (via `useLexicon` hook)
+- Word chips with pinyin (Tailo) on top, Chinese below
+- Green background = in vocabulary, Red background = OOV (out of vocabulary)
+- Click word to toggle display mode (Chinese primary / Tailo primary)
+- Click pinyin to open popover with all candidate pronunciations
+- Popover includes custom Tailo input field for manual entry
+- Editable segmentation input (space-separated words) at bottom
+- Re-validates words on custom segmentation commit
+
+**Props:**
+- `segmentText: string`
 
 ---
 
