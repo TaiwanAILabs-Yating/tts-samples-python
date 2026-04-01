@@ -6,7 +6,14 @@ import { TextInputCard } from "../components/setup/TextInputCard.tsx";
 import { GenerationParams } from "../components/setup/GenerationParams.tsx";
 import { AdvancedSettingsDrawer } from "../components/workspace/AdvancedSettingsDrawer.tsx";
 import { useProjectStore, type SentenceState } from "../stores/project-store.ts";
-import { splitSentences, countTokens, validateSentenceLengths } from "../utils/preprocessing.ts";
+import {
+  splitSentences,
+  countTokens,
+  validateSentenceCount,
+  validateSentenceLengths,
+  MAX_SENTENCES,
+  MAX_PROJECTS,
+} from "../utils/preprocessing.ts";
 import type { PipelineState, SegmentState as OrcSegmentState } from "../services/tts-orchestrator.ts";
 
 export function SetupPage() {
@@ -16,10 +23,9 @@ export function SetupPage() {
   const isSettingsOpen = useProjectStore((s) => s.isSettingsOpen);
   const setSettingsOpen = useProjectStore((s) => s.setSettingsOpen);
 
-  const [showPreview, setShowPreview] = useState(false);
+  const savedProjects = useProjectStore((s) => s.savedProjects);
 
-  const lengthValid = rawText ? validateSentenceLengths(rawText).valid : true;
-  const canCreate = rawText.trim().length > 0 && config.promptVoiceText.trim().length > 0 && lengthValid;
+  const [showPreview, setShowPreview] = useState(false);
 
   // Build sentences from rawText based on inputMode (same as WorkspacePage)
   const inputMode = useProjectStore((s) => s.inputMode);
@@ -31,6 +37,28 @@ export function SetupPage() {
     }
     return [text];
   }, [rawText, inputMode]);
+
+  // Validation: sentence count
+  const sentenceCountValidation = useMemo(() => {
+    if (!sentenceTexts.length) return null;
+    return validateSentenceCount(sentenceTexts);
+  }, [sentenceTexts]);
+
+  // Validation: sentence lengths (per-line char limit)
+  const sentenceLengthValidation = useMemo(
+    () => (rawText ? validateSentenceLengths(rawText) : null),
+    [rawText],
+  );
+
+  // Validation: project count limit
+  const isProjectLimitReached = savedProjects.length >= MAX_PROJECTS;
+
+  const canCreate =
+    rawText.trim().length > 0 &&
+    config.promptVoiceText.trim().length > 0 &&
+    (sentenceCountValidation?.valid ?? true) &&
+    (sentenceLengthValidation?.valid ?? true) &&
+    !isProjectLimitReached;
 
   // Preview: split each sentence into segments using current config
   const previewSegments = useMemo(() => {
@@ -86,6 +114,18 @@ export function SetupPage() {
 
             <TextInputCard />
             <GenerationParams />
+
+            {/* Validation errors */}
+            {sentenceCountValidation && !sentenceCountValidation.valid && (
+              <p className="text-xs text-status-error">
+                句數 {sentenceCountValidation.count} 超過上限 {sentenceCountValidation.max}，請縮減內容
+              </p>
+            )}
+            {isProjectLimitReached && (
+              <p className="text-xs text-status-error">
+                專案數量已達上限 ({MAX_PROJECTS})，請先刪除現有專案
+              </p>
+            )}
 
             {/* Action Row */}
             <div className="flex justify-end gap-3">

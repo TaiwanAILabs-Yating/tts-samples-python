@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useProjectStore, type SentenceStatus } from "../../stores/project-store.ts";
 import type { GenerationProgress } from "../../hooks/useGeneration.ts";
 
@@ -29,11 +30,14 @@ export function SentenceSidebar({
   onGenerateAll,
   onApproveAll,
 }: SentenceSidebarProps) {
+  const navigate = useNavigate();
   const sentences = useProjectStore((s) => s.sentences);
   const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
   const setSelected = useProjectStore((s) => s.setSelectedSentenceIndex);
 
   const projectName = useProjectStore((s) => s.projectName);
+  const projectId = useProjectStore((s) => s.projectId);
+  const deleteProject = useProjectStore((s) => s.deleteProject);
   const config = useProjectStore((s) => s.config);
 
   const approvedCount = sentences.filter((s) => s.status === "approved").length;
@@ -44,6 +48,7 @@ export function SentenceSidebar({
 
   const [downloadMode, setDownloadMode] = useState<DownloadMode>("audio_metadata");
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [showCleanupDialog, setShowCleanupDialog] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -244,6 +249,7 @@ export function SentenceSidebar({
     a.download = `${projectName}_approved.zip`;
     a.click();
     URL.revokeObjectURL(url);
+    setShowCleanupDialog(true);
   }, [sentences, projectName, downloadMode, config, buildZip]);
 
   return (
@@ -445,6 +451,49 @@ export function SentenceSidebar({
           </div>
         </div>
       </div>
+      {/* Export Cleanup Dialog */}
+      {showCleanupDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setShowCleanupDialog(false)}
+        >
+          <div
+            className="bg-bg-secondary border border-border rounded-lg w-full max-w-[400px] p-6 flex flex-col items-center gap-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Icon */}
+            <div className="w-12 h-12 rounded-full bg-status-approved/15 flex items-center justify-center">
+              <svg className="w-6 h-6 text-status-approved" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <h3 className="text-base font-semibold text-text-primary text-center">
+              匯出完成
+            </h3>
+            <p className="text-sm text-text-secondary leading-relaxed text-center">
+              ZIP 檔案已下載完成。是否刪除此專案及其所有音檔快取？
+            </p>
+            <div className="flex gap-3 w-full mt-2">
+              <button
+                onClick={() => setShowCleanupDialog(false)}
+                className="flex-1 text-sm font-medium text-text-secondary h-10 rounded-lg border border-border-secondary hover:bg-bg-tertiary transition-colors"
+              >
+                保留專案
+              </button>
+              <button
+                onClick={() => {
+                  deleteProject(projectId);
+                  setShowCleanupDialog(false);
+                  navigate("/setup");
+                }}
+                className="flex-1 text-sm font-semibold text-white h-10 rounded-lg bg-status-error hover:opacity-90 transition-opacity"
+              >
+                刪除專案
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

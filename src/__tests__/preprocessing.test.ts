@@ -10,6 +10,9 @@ import {
   splitSentences,
   validateSentenceLengths,
   stripPunctuation,
+  validateSentenceCount,
+  MAX_SENTENCES,
+  MAX_PROJECTS,
 } from "../utils/preprocessing";
 
 // Test fixture from user (same as Python test)
@@ -321,5 +324,47 @@ describe("validateSentenceLengths", () => {
     const exactLine = "字".repeat(1000);
     const result = validateSentenceLengths(exactLine);
     expect(result.valid).toBe(true);
+  });
+});
+
+describe("validateSentenceCount", () => {
+  it("accepts count within limit", () => {
+    const result = validateSentenceCount(["a", "b", "c"]);
+    expect(result.valid).toBe(true);
+    expect(result.count).toBe(3);
+    expect(result.max).toBe(MAX_SENTENCES);
+  });
+
+  it("accepts exactly MAX_SENTENCES", () => {
+    const result = validateSentenceCount(MAX_SENTENCES);
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects count exceeding limit", () => {
+    const result = validateSentenceCount(MAX_SENTENCES + 1);
+    expect(result.valid).toBe(false);
+    expect(result.count).toBe(MAX_SENTENCES + 1);
+  });
+
+  it("accepts number input", () => {
+    const result = validateSentenceCount(50);
+    expect(result.valid).toBe(true);
+    expect(result.count).toBe(50);
+  });
+
+  it("respects custom max", () => {
+    const result = validateSentenceCount(11, 10);
+    expect(result.valid).toBe(false);
+    expect(result.max).toBe(10);
+  });
+});
+
+describe("constants", () => {
+  it("MAX_SENTENCES is 200", () => {
+    expect(MAX_SENTENCES).toBe(200);
+  });
+
+  it("MAX_PROJECTS is 5", () => {
+    expect(MAX_PROJECTS).toBe(5);
   });
 });
