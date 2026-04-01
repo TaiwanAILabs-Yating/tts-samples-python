@@ -83,7 +83,7 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 isolate">
       {segments.map((segment, i) => {
         const color = SEGMENT_COLORS[i % SEGMENT_COLORS.length];
         const durStr =
