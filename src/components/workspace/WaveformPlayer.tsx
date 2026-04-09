@@ -78,6 +78,7 @@ export const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerPro
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(800);
+  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1); // 1 = 100%
 
   const ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4];
@@ -429,6 +430,39 @@ export const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerPro
 
         {/* Right controls */}
         <div className="flex items-center gap-4">
+          {/* Playback speed */}
+          <div className="relative">
+            <button
+              onClick={() => setSpeedMenuOpen(!speedMenuOpen)}
+              className="flex items-center gap-1 text-xs font-mono font-medium text-text-primary px-2 py-1 rounded border border-border-input hover:bg-bg-tertiary transition-colors"
+            >
+              {player.playbackRate}x
+              <svg className="w-3 h-3 text-text-secondary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+            {speedMenuOpen && (
+              <div className="absolute bottom-full right-0 mb-1 bg-bg-nav border border-border rounded-md shadow-lg py-1 z-10">
+                {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                  <button
+                    key={rate}
+                    onClick={() => {
+                      player.changePlaybackRate(rate);
+                      setSpeedMenuOpen(false);
+                    }}
+                    className={`block w-full text-left px-3 py-1 text-xs font-mono hover:bg-bg-tertiary transition-colors ${
+                      player.playbackRate === rate
+                        ? "text-accent-primary"
+                        : "text-text-primary"
+                    }`}
+                  >
+                    {rate}x
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Zoom */}
           <div className="flex items-center gap-1">
             <button
