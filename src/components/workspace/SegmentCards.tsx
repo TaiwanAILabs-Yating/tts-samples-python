@@ -186,8 +186,33 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
               onWordStatesChange={(states) => updateSegmentWordSeg(selectedIndex, i, states)}
             />
 
-            {/* Actions */}
+            {/* Actions: Play · Regen · Download */}
             <div className="flex items-center gap-2 ml-3">
+              {/* Play segment audio */}
+              <button
+                onClick={(e) => { e.stopPropagation(); if (segment.audio) togglePlay(i, segment.audio); }}
+                disabled={!segment.audio}
+                className={`flex items-center justify-center w-8 h-8 rounded-md border border-border-input transition-colors ${
+                  !segment.audio
+                    ? "opacity-30 cursor-not-allowed text-text-muted"
+                    : playingIndex === i
+                      ? "text-accent-primary bg-accent-primary/10 border-accent-primary"
+                      : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
+                }`}
+                title={segment.audio ? "Play this segment" : "No audio available"}
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  {playingIndex === i ? (
+                    <>
+                      <rect x="6" y="4" width="4" height="16" rx="1" />
+                      <rect x="14" y="4" width="4" height="16" rx="1" />
+                    </>
+                  ) : (
+                    <path d="M5 3l14 9-14 9V3z" />
+                  )}
+                </svg>
+              </button>
+              {/* Regenerate */}
               <button
                 onClick={(e) => { e.stopPropagation(); onRegenerateSegment(selectedIndex, i); }}
                 disabled={isRegenDisabled}
@@ -211,28 +236,31 @@ export function SegmentCards({ onRegenerateSegment, onSegmentClick, activeSegmen
                   <path d="M21 3v5h-5" />
                 </svg>
               </button>
-              {/* Play segment audio */}
+              {/* Download segment audio */}
               <button
-                onClick={(e) => { e.stopPropagation(); if (segment.audio) togglePlay(i, segment.audio); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!segment.audio) return;
+                  const blob = new Blob([segment.audio], { type: "audio/wav" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `segment_${selectedIndex + 1}_${i + 1}.wav`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
                 disabled={!segment.audio}
                 className={`flex items-center justify-center w-8 h-8 rounded-md border border-border-input transition-colors ${
                   !segment.audio
                     ? "opacity-30 cursor-not-allowed text-text-muted"
-                    : playingIndex === i
-                      ? "text-accent-primary bg-accent-primary/10 border-accent-primary"
-                      : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
+                    : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
                 }`}
-                title={segment.audio ? "Play this segment" : "No audio available"}
+                title={segment.audio ? "Download this segment" : "No audio available"}
               >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                  {playingIndex === i ? (
-                    <>
-                      <rect x="6" y="4" width="4" height="16" rx="1" />
-                      <rect x="14" y="4" width="4" height="16" rx="1" />
-                    </>
-                  ) : (
-                    <path d="M5 3l14 9-14 9V3z" />
-                  )}
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
               </button>
             </div>
