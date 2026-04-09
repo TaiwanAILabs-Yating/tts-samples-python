@@ -27,16 +27,12 @@ export function SetupPage() {
 
   const [showPreview, setShowPreview] = useState(false);
 
-  // Build sentences from rawText based on inputMode (same as WorkspacePage)
-  const inputMode = useProjectStore((s) => s.inputMode);
+  // Build sentences from rawText: split by newline for both direct and upload modes
   const sentenceTexts = useMemo(() => {
     const text = rawText.trim();
     if (!text) return [];
-    if (inputMode === "upload") {
-      return text.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-    }
-    return [text];
-  }, [rawText, inputMode]);
+    return text.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+  }, [rawText]);
 
   // Validation: sentence count
   const sentenceCountValidation = useMemo(() => {
