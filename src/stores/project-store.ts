@@ -9,6 +9,10 @@ import {
   deleteProjectAudio,
   loadPromptVoice,
 } from "./audio-storage";
+import {
+  exportSettings as exportSettingsIO,
+  importSettings as importSettingsIO,
+} from "../utils/settings-io";
 
 // --- Sentence-level state ---
 
@@ -109,6 +113,10 @@ interface ProjectStore {
   saveCurrentProject: () => void;
   switchProject: (id: string) => void;
   deleteProject: (id: string) => void;
+
+  // Settings export/import
+  exportSettings: () => Promise<void>;
+  importSettings: (file: File) => Promise<void>;
 
   // Reset
   reset: () => void;
@@ -306,6 +314,15 @@ export const useProjectStore = create<ProjectStore>()(persist((set, get) => ({
     set((s) => ({
       savedProjects: s.savedProjects.filter((p) => p.id !== id),
     }));
+  },
+
+  exportSettings: async () => {
+    await exportSettingsIO(get().config);
+  },
+
+  importSettings: async (file: File) => {
+    const partial = await importSettingsIO(file);
+    set((s) => ({ config: { ...s.config, ...partial } }));
   },
 
   reset: () => {
