@@ -34,6 +34,27 @@ export interface LexiconService {
   validateWords(words: string[]): ValidationResult[];
 }
 
+// --- Latin / digit character detection ---
+
+/**
+ * Check if a character is a Latin letter (including accented/tonal variants) or digit.
+ * Covers: A-Z, a-z, 0-9, Latin Extended (à á â ã ä å ē é ì í ō ó ú ü etc.)
+ */
+function isLatinOrDigit(ch: string): boolean {
+  const code = ch.codePointAt(0);
+  if (code === undefined) return false;
+
+  // ASCII digits 0-9
+  if (code >= 0x30 && code <= 0x39) return true;
+  // ASCII letters A-Z, a-z
+  if (code >= 0x41 && code <= 0x5a) return true;
+  if (code >= 0x61 && code <= 0x7a) return true;
+  // Latin Extended: À-ɏ (U+00C0–U+024F) — covers accented & tonal letters
+  if (code >= 0x00c0 && code <= 0x024f) return true;
+
+  return false;
+}
+
 // --- Unicode punctuation detection ---
 
 /**
@@ -107,6 +128,25 @@ class LexiconServiceImpl implements LexiconService {
       if (isPunctuation(ch)) {
         tokens.push(ch);
         i--;
+        continue;
+      }
+
+      // Latin/digit sequence → collect as single token (e.g. "asus", "ká-sú", "MP3")
+      if (isLatinOrDigit(ch)) {
+        let start = i - 1;
+        while (start > 0) {
+          const prev = text[start - 1];
+          if (isLatinOrDigit(prev)) {
+            start--;
+          } else if (prev === "-" && start > 1 && isLatinOrDigit(text[start - 2])) {
+            // Include hyphen only when surrounded by Latin/digit (e.g. "ká-sú")
+            start -= 2;
+          } else {
+            break;
+          }
+        }
+        tokens.push(text.slice(start, i));
+        i = start;
         continue;
       }
 
