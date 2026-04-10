@@ -65,3 +65,27 @@ export async function getAudioDuration(
     await audioContext.close();
   }
 }
+
+/** Maximum prompt audio duration in seconds. */
+export const MAX_PROMPT_DURATION = 10;
+
+export interface PromptDurationValidation {
+  valid: boolean;
+  duration: number;
+}
+
+/**
+ * Validate that a prompt audio file does not exceed the maximum duration.
+ *
+ * @param file - Audio file (File or Blob)
+ * @param maxSeconds - Maximum duration in seconds (default: 10)
+ * @returns Validation result with measured duration
+ */
+export async function validatePromptDuration(
+  file: File | Blob,
+  maxSeconds: number = MAX_PROMPT_DURATION,
+): Promise<PromptDurationValidation> {
+  const buffer = await file.arrayBuffer();
+  const duration = await getAudioDuration(buffer);
+  return { valid: duration <= maxSeconds, duration };
+}

@@ -25,6 +25,8 @@ export function WorkspacePage() {
 
   const {
     isGenerating,
+    canRegenerate,
+    canApproveReject,
     progress,
     regeneratingSegmentKey,
     handleGenerateAll,
@@ -67,6 +69,7 @@ export function WorkspacePage() {
     onNextSentence: handleNextSentence,
     onApprove: handleApprove,
     onReject: handleReject,
+    isGenerating,
   });
 
   // Eagerly preload FFmpeg WASM on workspace mount
@@ -148,26 +151,30 @@ export function WorkspacePage() {
         />
 
         {/* Main Workspace */}
-        <main className="flex-1 overflow-auto p-6 flex flex-col gap-5">
+        <main className="flex-1 flex flex-col overflow-hidden">
           {sentences.length > 0 ? (
             <>
-              {/* Sticky header + waveform */}
-              <div className="sticky top-0 z-10 bg-bg-primary flex flex-col gap-5 pb-2">
-                <WorkspaceHeader />
+              {/* Fixed header + waveform (non-scrolling) */}
+              <div className="shrink-0 px-6 pt-6 pb-2 flex flex-col gap-5 bg-bg-primary">
+                <WorkspaceHeader canApproveReject={canApproveReject} />
                 <WaveformPlayer
                   ref={waveformRef}
                   onCurrentSegmentChange={setActiveSegmentIndex}
                 />
               </div>
+              {/* Scrollable content */}
+              <div className="flex-1 overflow-auto px-6 pb-6 pt-4 flex flex-col gap-5">
               <SegmentCards
                 onRegenerateSegment={handleRegenerateSegment}
                 onSegmentClick={(segIndex) => waveformRef.current?.seekToSegmentIndex(segIndex)}
                 activeSegmentIndex={activeSegmentIndex}
                 regeneratingSegmentKey={regeneratingSegmentKey}
+                canRegenerate={canRegenerate}
               />
               <BottomActions
                 onRegenerateSentence={handleRegenerateSentence}
                 isSegmentRegenerating={regeneratingSegmentKey !== null}
+                canRegenerate={canRegenerate}
               />
               {/* Notes */}
               <div className="flex flex-col gap-2">
@@ -185,6 +192,7 @@ export function WorkspacePage() {
                   rows={3}
                   className="w-full bg-bg-secondary border border-border rounded-md px-3 py-2.5 text-[13px] text-text-primary placeholder:text-text-muted resize-y focus:outline-none focus:ring-1 focus:ring-accent-primary focus:border-accent-primary transition-colors"
                 />
+              </div>
               </div>
             </>
           ) : (

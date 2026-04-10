@@ -8,7 +8,11 @@ import {
   generateUttId,
   preprocessText,
   splitSentences,
+  validateSentenceLengths,
   stripPunctuation,
+  validateSentenceCount,
+  MAX_SENTENCES,
+  MAX_PROJECTS,
 } from "../utils/preprocessing";
 
 // Test fixture from user (same as Python test)
@@ -272,5 +276,95 @@ describe("generateUttId", () => {
 
   it("handles custom basename", () => {
     expect(generateUttId("19981202_nan", 5)).toBe("19981202_nan_00005");
+  });
+});
+
+describe("validateSentenceLengths", () => {
+  it("returns valid for short lines", () => {
+    const result = validateSentenceLengths("短文\n第二行");
+    expect(result.valid).toBe(true);
+    expect(result.violations).toEqual([]);
+  });
+
+  it("skips empty lines", () => {
+    const result = validateSentenceLengths("第一行\n\n\n第二行");
+    expect(result.valid).toBe(true);
+    expect(result.violations).toEqual([]);
+  });
+
+  it("detects lines exceeding maxChars", () => {
+    const longLine = "字".repeat(1001);
+    const result = validateSentenceLengths(`短句\n${longLine}\n另一行`);
+    expect(result.valid).toBe(false);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0]).toEqual({
+      line: 2,
+      text: longLine,
+      length: 1001,
+    });
+  });
+
+  it("detects multiple violations", () => {
+    const long1 = "a".repeat(1001);
+    const long2 = "b".repeat(2000);
+    const result = validateSentenceLengths(`${long1}\n短\n${long2}`);
+    expect(result.valid).toBe(false);
+    expect(result.violations).toHaveLength(2);
+    expect(result.violations[0].line).toBe(1);
+    expect(result.violations[1].line).toBe(3);
+  });
+
+  it("respects custom maxChars", () => {
+    const result = validateSentenceLengths("12345", 3);
+    expect(result.valid).toBe(false);
+    expect(result.violations[0].length).toBe(5);
+  });
+
+  it("exactly 1000 chars is valid", () => {
+    const exactLine = "字".repeat(1000);
+    const result = validateSentenceLengths(exactLine);
+    expect(result.valid).toBe(true);
+  });
+});
+
+describe("validateSentenceCount", () => {
+  it("accepts count within limit", () => {
+    const result = validateSentenceCount(["a", "b", "c"]);
+    expect(result.valid).toBe(true);
+    expect(result.count).toBe(3);
+    expect(result.max).toBe(MAX_SENTENCES);
+  });
+
+  it("accepts exactly MAX_SENTENCES", () => {
+    const result = validateSentenceCount(MAX_SENTENCES);
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects count exceeding limit", () => {
+    const result = validateSentenceCount(MAX_SENTENCES + 1);
+    expect(result.valid).toBe(false);
+    expect(result.count).toBe(MAX_SENTENCES + 1);
+  });
+
+  it("accepts number input", () => {
+    const result = validateSentenceCount(50);
+    expect(result.valid).toBe(true);
+    expect(result.count).toBe(50);
+  });
+
+  it("respects custom max", () => {
+    const result = validateSentenceCount(11, 10);
+    expect(result.valid).toBe(false);
+    expect(result.max).toBe(10);
+  });
+});
+
+describe("constants", () => {
+  it("MAX_SENTENCES is 200", () => {
+    expect(MAX_SENTENCES).toBe(200);
+  });
+
+  it("MAX_PROJECTS is 5", () => {
+    expect(MAX_PROJECTS).toBe(5);
   });
 });

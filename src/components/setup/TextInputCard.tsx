@@ -1,6 +1,6 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useMemo } from "react";
 import { useProjectStore, type InputMode } from "../../stores/project-store.ts";
-import { countTokens } from "../../utils/preprocessing.ts";
+import { countTokens, validateSentenceLengths } from "../../utils/preprocessing.ts";
 
 interface UploadedFile {
   name: string;
@@ -8,7 +8,12 @@ interface UploadedFile {
   sizeKB: number;
 }
 
-export function TextInputCard() {
+interface TextInputCardProps {
+  onPreviewClick?: () => void;
+  canPreview?: boolean;
+}
+
+export function TextInputCard({ onPreviewClick, canPreview }: TextInputCardProps) {
   const rawText = useProjectStore((s) => s.rawText);
   const setRawText = useProjectStore((s) => s.setRawText);
   const inputMode = useProjectStore((s) => s.inputMode);
@@ -20,6 +25,12 @@ export function TextInputCard() {
 
   const charCount = rawText.length;
   const tokenCount = rawText ? countTokens(rawText) : 0;
+
+  // Validate sentence lengths (per-line 1000 char limit)
+  const lengthValidation = useMemo(
+    () => (rawText ? validateSentenceLengths(rawText) : null),
+    [rawText],
+  );
 
   const processFile = useCallback(
     (file: File) => {
@@ -217,14 +228,48 @@ export function TextInputCard() {
         </div>
       )}
 
-      {/* Stats */}
-      <div className="flex justify-end gap-4">
-        <span className="text-[11px] font-mono text-text-muted">
-          Characters: {charCount}
-        </span>
-        <span className="text-[11px] font-mono text-text-muted">
-          Tokens: ~{tokenCount}
-        </span>
+      {/* Sentence length errors */}
+      {lengthValidation && !lengthValidation.valid && (
+        <div className="flex flex-col gap-1">
+          {lengthValidation.violations.map((v) => (
+            <p key={v.line} className="text-xs text-status-error">
+              第 {v.line} 行超出字數上限（{v.length}/1000 字）
+            </p>
+          ))}
+        </div>
+      )}
+
+      {/* Stats + Preview */}
+      <div className="flex items-center justify-between">
+        {onPreviewClick ? (
+          <button
+            disabled={!canPreview}
+            onClick={onPreviewClick}
+            className="flex items-center gap-1.5 text-sm font-medium text-text-primary px-5 py-2.5 rounded-md border border-border-secondary hover:bg-bg-tertiary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <svg
+              className="w-4 h-4 text-text-secondary"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            Preview Segments
+          </button>
+        ) : <div />}
+        <div className="flex gap-4">
+          <span className="text-[11px] font-mono text-text-muted">
+            Characters: {charCount}
+          </span>
+          <span className="text-[11px] font-mono text-text-muted">
+            Tokens: ~{tokenCount}
+          </span>
+        </div>
       </div>
     </div>
   );

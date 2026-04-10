@@ -8,6 +8,7 @@ interface KeyboardShortcutsConfig {
   onNextSentence: () => void;
   onApprove: () => void;
   onReject: () => void;
+  isGenerating?: boolean;
 }
 
 /**
@@ -44,11 +45,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
           break;
         case "a":
         case "A":
-          config.onApprove();
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
+          if (!config.isGenerating) config.onApprove();
           break;
         case "r":
         case "R":
-          config.onReject();
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
+          if (!config.isGenerating) config.onReject();
           break;
       }
     };
