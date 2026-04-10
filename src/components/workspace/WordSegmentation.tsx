@@ -108,7 +108,7 @@ export function WordSegmentation({ segmentText, initialWordSeg, onWordStatesChan
   if (!service || wordStates.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-2 mt-2">
+    <div className="flex flex-col gap-2 bg-bg-primary rounded-lg p-3 border border-border">
       {/* Word chips */}
       <div className="flex flex-wrap gap-1.5">
         {wordStates.map((ws, i) => {
@@ -128,54 +128,70 @@ export function WordSegmentation({ segmentText, initialWordSeg, onWordStatesChan
             );
           }
 
-          const bgColor = ws.inVocab
-            ? "bg-emerald-900/20"
-            : "bg-red-900/30";
+          const isActive = ws.useTailo;
 
           return (
             <div key={i} className="relative">
               <div
-                className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded ${bgColor}`}
+                className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded border transition-colors ${
+                  isActive
+                    ? "bg-accent-primary/10 border-accent-primary/25"
+                    : ws.inVocab
+                      ? "bg-emerald-900/20 border-transparent"
+                      : "bg-red-900/30 border-transparent"
+                }`}
               >
-                {/* Tailo (top) */}
+                {/* Tailo (top) — click to enable useTailo, right-click to open popover */}
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
+                    // Left click: toggle to Tailo mode (use default pronunciation)
+                    updateStates((prev) =>
+                      prev.map((w, j) =>
+                        j === i ? { ...w, useTailo: true } : w,
+                      ),
+                    );
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Right click: open popover for pronunciation selection
                     setPopoverIndex(popoverIndex === i ? null : i);
                     setCustomTailoInput("");
                   }}
                   className={`text-[10px] font-mono leading-tight cursor-pointer hover:underline ${
-                    ws.useTailo
+                    isActive
                       ? "text-text-primary font-medium"
                       : ws.inVocab
                         ? "text-text-muted"
                         : "text-red-400"
                   }`}
-                  title="Click to select pronunciation"
+                  title={isActive ? "Right-click to change pronunciation" : "Click to use Tailo pronunciation"}
                 >
                   {ws.tailo || "?"}
                 </button>
 
-                {/* Word (bottom) */}
+                {/* Word (bottom) — click to switch back to Chinese */}
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
+                    // Click Chinese: switch back to Chinese mode
                     updateStates((prev) =>
                       prev.map((w, j) =>
-                        j === i ? { ...w, useTailo: !w.useTailo } : w,
+                        j === i ? { ...w, useTailo: false } : w,
                       ),
                     );
                   }}
                   className={`text-[13px] leading-tight cursor-pointer ${
-                    ws.useTailo
+                    isActive
                       ? "text-text-muted"
                       : ws.inVocab
                         ? "text-text-primary font-medium"
                         : "text-red-300 font-medium"
                   }`}
-                  title="Click to toggle display mode"
+                  title={isActive ? "Click to use Chinese" : "Currently using Chinese"}
                 >
                   {ws.word}
                 </button>
@@ -214,13 +230,13 @@ export function WordSegmentation({ segmentText, initialWordSeg, onWordStatesChan
                             setPopoverIndex(null);
                           }}
                           className={`w-full flex items-center justify-between px-3 py-2 text-left text-[12px] font-mono transition-colors ${
-                            ws.tailo === t
+                            ws.tailo === t && ws.useTailo
                               ? "bg-accent-primary/10 text-accent-primary"
                               : "text-text-primary hover:bg-bg-tertiary"
                           }`}
                         >
                           {t}
-                          {ws.tailo === t && (
+                          {ws.tailo === t && ws.useTailo && (
                             <svg
                               className="w-3 h-3 text-accent-primary"
                               viewBox="0 0 24 24"
@@ -322,7 +338,7 @@ export function WordSegmentation({ segmentText, initialWordSeg, onWordStatesChan
               setIsEditing(true);
               setTimeout(() => inputRef.current?.focus(), 0);
             }}
-            className="flex-1 min-w-0 text-left bg-bg-primary text-text-muted text-[12px] font-mono rounded px-2.5 py-1.5 border border-border hover:border-border-input transition-colors truncate"
+            className="flex-1 min-w-0 text-left bg-bg-tertiary/50 text-text-muted text-[12px] font-mono rounded px-2.5 py-1.5 border border-border hover:border-border-input transition-colors truncate"
           >
             {customInput || "Edit segmentation..."}
           </button>
