@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { TopNav } from "../components/TopNav.tsx";
 import { VoiceSetup } from "../components/setup/VoiceSetup.tsx";
@@ -22,10 +22,15 @@ export function SetupPage() {
   const config = useProjectStore((s) => s.config);
   const isSettingsOpen = useProjectStore((s) => s.isSettingsOpen);
   const setSettingsOpen = useProjectStore((s) => s.setSettingsOpen);
+  const exportSettings = useProjectStore((s) => s.exportSettings);
+  const importSettingsAction = useProjectStore((s) => s.importSettings);
 
   const savedProjects = useProjectStore((s) => s.savedProjects);
 
   const [showPreview, setShowPreview] = useState(false);
+  const [showImportConfirm, setShowImportConfirm] = useState(false);
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   // Build sentences from rawText: split by newline for both direct and upload modes
   const sentenceTexts = useMemo(() => {
@@ -55,6 +60,26 @@ export function SetupPage() {
     (sentenceCountValidation?.valid ?? true) &&
     (sentenceLengthValidation?.valid ?? true) &&
     !isProjectLimitReached;
+
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPendingImportFile(file);
+    setShowImportConfirm(true);
+    // Reset input so the same file can be re-selected
+    e.target.value = "";
+  };
+
+  const handleImportConfirm = async () => {
+    if (!pendingImportFile) return;
+    try {
+      await importSettingsAction(pendingImportFile);
+    } catch (err) {
+      console.error("Import failed:", err);
+    }
+    setPendingImportFile(null);
+    setShowImportConfirm(false);
+  };
 
   // Preview: split each sentence into segments using current config
   const previewSegments = useMemo(() => {
@@ -93,7 +118,7 @@ export function SetupPage() {
     <div className="flex flex-col h-screen">
       <TopNav />
       <main className="flex-1 overflow-auto p-8">
-        <div className="flex gap-8 max-w-[1200px] mx-auto">
+        <div className="flex gap-8">
           {/* Left: Voice Setup */}
           <VoiceSetup />
 
@@ -108,7 +133,10 @@ export function SetupPage() {
               </p>
             </div>
 
-            <TextInputCard />
+            <TextInputCard
+              onPreviewClick={() => setShowPreview(true)}
+              canPreview={!!rawText.trim()}
+            />
             <GenerationParams />
 
             {/* Validation errors */}
@@ -123,26 +151,41 @@ export function SetupPage() {
               </p>
             )}
 
+            {/* Hidden file input for Import */}
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={handleImportFileChange}
+            />
+
             {/* Action Row */}
             <div className="flex justify-end gap-3">
+              {/* Export Settings */}
               <button
-                disabled={!rawText.trim()}
-                onClick={() => setShowPreview(true)}
-                className="flex items-center gap-1.5 text-sm font-medium text-text-primary px-5 py-2.5 rounded-md border border-border-secondary hover:bg-bg-tertiary transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={() => exportSettings()}
+                className="flex items-center gap-1.5 text-sm font-medium text-text-secondary px-4 py-2.5 rounded-md border border-border-secondary hover:bg-bg-tertiary transition-colors"
               >
-                <svg
-                  className="w-4 h-4 text-text-secondary"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                  <circle cx="12" cy="12" r="3" />
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
-                Preview Segments
+                Export Settings
+              </button>
+
+              {/* Import Settings */}
+              <button
+                onClick={() => importFileRef.current?.click()}
+                className="flex items-center gap-1.5 text-sm font-medium text-text-secondary px-4 py-2.5 rounded-md border border-border-secondary hover:bg-bg-tertiary transition-colors"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                Import Settings
               </button>
 
               {/* Advanced Settings button */}
@@ -189,6 +232,45 @@ export function SetupPage() {
       </main>
 
       {isSettingsOpen && <AdvancedSettingsDrawer />}
+
+      {/* Import Confirm Dialog */}
+      {showImportConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => { setShowImportConfirm(false); setPendingImportFile(null); }}
+        >
+          <div
+            className="bg-bg-secondary border border-border-secondary rounded-xl w-full max-w-[380px] p-6 flex flex-col gap-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold text-text-primary">匯入設定</h3>
+            <div className="flex items-start gap-2">
+              <svg className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <p className="text-sm text-text-secondary">
+                匯入將覆蓋目前的設定（語言、模型、prompt 等），確定要繼續嗎？
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setShowImportConfirm(false); setPendingImportFile(null); }}
+                className="text-sm font-medium text-text-secondary px-4 py-2 rounded-md border border-border-secondary hover:bg-bg-tertiary transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleImportConfirm}
+                className="text-sm font-medium text-white bg-accent-primary hover:bg-accent-hover px-4 py-2 rounded-md transition-colors"
+              >
+                確定匯入
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Preview Segments Modal */}
       {showPreview && (
