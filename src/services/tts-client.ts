@@ -4,6 +4,19 @@ import { logger } from "../utils/logger";
 
 const END_SILENCE_TOKEN = "<|sil_200ms|>";
 
+/**
+ * Resolve the actual model ID based on language.
+ * MasterZhengyanKaishi is split into Zh/Nan variants;
+ * other models pass through unchanged.
+ */
+function resolveModelId(modelId: string, language?: string): string {
+  if (modelId === "MasterZhengyanKaishi") {
+    if (language === "zh") return "MasterZhengyanKaishiZh";
+    if (language === "nan") return "MasterZhengyanKaishiNan";
+  }
+  return modelId;
+}
+
 export interface ZeroShotRequest {
   text: string;
   promptVoiceText: string;
@@ -48,7 +61,7 @@ export async function sendZeroShotRequest(
       promptText,
     },
     modelConfig: {
-      model: config.modelId,
+      model: resolveModelId(config.modelId, req.language),
     },
     audioConfig: {
       encoding: "LINEAR16",
