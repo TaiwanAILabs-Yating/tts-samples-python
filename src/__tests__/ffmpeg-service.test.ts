@@ -34,7 +34,10 @@ const {
   concatWavsWithCrossfade,
   preloadFFmpeg,
   terminateFFmpeg,
+  computeConcatTimeout,
+  CONCAT_BATCH_SIZE,
 } = await import("../services/ffmpeg-service");
+type ConcatProgress = import("../services/ffmpeg-service").ConcatProgress;
 
 describe("padAudioWithSilence", () => {
   beforeEach(() => {
@@ -171,6 +174,80 @@ describe("concatWavsWithCrossfade", () => {
     expect(mockDeleteFile).toHaveBeenCalledWith(
       "crossfade_output.wav"
     );
+  });
+
+  it("uses single-pass when N === CONCAT_BATCH_SIZE", async () => {
+    const bufs = Array.from({ length: CONCAT_BATCH_SIZE }, () => new ArrayBuffer(100));
+    await concatWavsWithCrossfade(bufs);
+    // Single exec call, single output file label
+    expect(mockExec).toHaveBeenCalledTimes(1);
+    expect(mockReadFile).toHaveBeenCalledWith("crossfade_output.wav");
+  });
+
+  it("uses two passes when N === CONCAT_BATCH_SIZE + 1", async () => {
+    const bufs = Array.from(
+      { length: CONCAT_BATCH_SIZE + 1 },
+      () => new ArrayBuffer(100),
+    );
+    await concatWavsWithCrossfade(bufs);
+    // Pass 1: 2 batches (50 + 1 → but second batch has 1 file, returned as-is, no exec)
+    // Pass 2: 1 final exec to merge
+    // So: 1 exec for batch 0 (50 files) + 0 for batch 1 (1 file → early-returned) + 1 for pass2 = 2
+    expect(mockExec).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses two passes when N=110 (3 batches + 1 merge = 4 execs)", async () => {
+    const bufs = Array.from({ length: 110 }, () => new ArrayBuffer(100));
+    await concatWavsWithCrossfade(bufs);
+    // Pass 1: 3 batches (50 + 50 + 10) → 3 exec; Pass 2: 1 merge → 1 exec; total 4
+    expect(mockExec).toHaveBeenCalledTimes(4);
+  });
+
+  it("invokes onProgress with pass1/pass2/done sequence", async () => {
+    const bufs = Array.from({ length: 110 }, () => new ArrayBuffer(100));
+    const progress: ConcatProgress[] = [];
+    await concatWavsWithCrossfade(bufs, 0.05, "tri", (info) => {
+      progress.push(info);
+    });
+    // Expect real progress shape, including FFmpeg exec progress.
+    expect(progress).toEqual([
+      { phase: "pass1", current: 0, total: 3, progress: 0 },
+      { phase: "pass1", current: 0, total: 3, progress: 1 },
+      { phase: "pass1", current: 1, total: 3, progress: 0 },
+      { phase: "pass1", current: 1, total: 3, progress: 1 },
+      { phase: "pass1", current: 2, total: 3, progress: 0 },
+      { phase: "pass1", current: 2, total: 3, progress: 1 },
+      { phase: "pass2", current: 0, total: 1, progress: 0 },
+      { phase: "pass2", current: 0, total: 1, progress: 1 },
+      { phase: "done", current: 1, total: 1, progress: 1 },
+    ]);
+  });
+
+  it("invokes onProgress for single-pass case", async () => {
+    const bufs = Array.from({ length: CONCAT_BATCH_SIZE }, () => new ArrayBuffer(100));
+    const progress: ConcatProgress[] = [];
+    await concatWavsWithCrossfade(bufs, 0.05, "tri", (info) => {
+      progress.push(info);
+    });
+    expect(progress).toEqual([
+      { phase: "pass1", current: 0, total: 1, progress: 0 },
+      { phase: "pass1", current: 0, total: 1, progress: 1 },
+      { phase: "done", current: 1, total: 1, progress: 1 },
+    ]);
+  });
+});
+
+describe("computeConcatTimeout", () => {
+  it("returns base + 2s per file for small N", () => {
+    expect(computeConcatTimeout(0)).toBe(30_000);
+    expect(computeConcatTimeout(50)).toBe(130_000);
+    expect(computeConcatTimeout(100)).toBe(230_000);
+  });
+
+  it("caps at 5 minutes for large N", () => {
+    expect(computeConcatTimeout(135)).toBe(300_000);
+    expect(computeConcatTimeout(500)).toBe(300_000);
+    expect(computeConcatTimeout(10_000)).toBe(300_000);
   });
 });
 

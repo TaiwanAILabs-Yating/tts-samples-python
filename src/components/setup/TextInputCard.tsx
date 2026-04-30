@@ -1,6 +1,11 @@
 import { useRef, useState, useCallback, useMemo } from "react";
 import { useProjectStore, type InputMode } from "../../stores/project-store.ts";
-import { countTokens, validateSentenceLengths } from "../../utils/preprocessing.ts";
+import {
+  countTokens,
+  validateSentenceLengths,
+  MAX_CHARS_PER_LINE,
+  MAX_DIRECT_CHARS,
+} from "../../utils/preprocessing.ts";
 
 interface UploadedFile {
   name: string;
@@ -26,11 +31,23 @@ export function TextInputCard({ onPreviewClick, canPreview }: TextInputCardProps
   const charCount = rawText.length;
   const tokenCount = rawText ? countTokens(rawText) : 0;
 
-  // Validate sentence lengths (per-line 1000 char limit)
-  const lengthValidation = useMemo(
-    () => (rawText ? validateSentenceLengths(rawText) : null),
-    [rawText],
-  );
+  // Validate length:
+  // - direct: whole text capped at MAX_DIRECT_CHARS (total chars).
+  // - upload: per-line cap at MAX_CHARS_PER_LINE.
+  const lengthValidation = useMemo(() => {
+    if (!rawText) return null;
+    if (inputMode === "direct") {
+      const length = rawText.trim().length;
+      return {
+        valid: length <= MAX_DIRECT_CHARS,
+        violations:
+          length <= MAX_DIRECT_CHARS
+            ? []
+            : [{ line: 1, text: rawText, length }],
+      };
+    }
+    return validateSentenceLengths(rawText, MAX_CHARS_PER_LINE);
+  }, [rawText, inputMode]);
 
   const processFile = useCallback(
     (file: File) => {
@@ -233,7 +250,9 @@ export function TextInputCard({ onPreviewClick, canPreview }: TextInputCardProps
         <div className="flex flex-col gap-1">
           {lengthValidation.violations.map((v) => (
             <p key={v.line} className="text-xs text-status-error">
-              第 {v.line} 行超出字數上限（{v.length}/1000 字）
+              {inputMode === "direct"
+                ? `整段文字超出字數上限（${v.length}/${MAX_DIRECT_CHARS} 字）`
+                : `第 ${v.line} 行超出字數上限（${v.length}/${MAX_CHARS_PER_LINE} 字）`}
             </p>
           ))}
         </div>

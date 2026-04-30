@@ -136,7 +136,8 @@ describe("generateAll", () => {
     expect(mockConcatWavs).toHaveBeenCalledWith(
       [fakeAudio],
       0.05,
-      "tri"
+      "tri",
+      expect.any(Function),
     );
   });
 
@@ -228,7 +229,8 @@ describe("generateAll", () => {
     expect(mockConcatWavs).toHaveBeenCalledWith(
       expect.any(Array),
       0.1,
-      "hsin"
+      "hsin",
+      expect.any(Function),
     );
   });
 });

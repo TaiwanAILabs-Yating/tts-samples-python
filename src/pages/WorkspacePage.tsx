@@ -8,7 +8,11 @@ import { BottomActions } from "../components/workspace/BottomActions.tsx";
 import { useProjectStore, type SentenceState } from "../stores/project-store.ts";
 import { useGeneration } from "../hooks/useGeneration.ts";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts.ts";
-import { splitSentences } from "../utils/preprocessing.ts";
+import {
+  splitSentences,
+  splitDirectInputIntoSentences,
+  MAX_SEGMENTS_FOR_PLAYER,
+} from "../utils/preprocessing.ts";
 import { preloadFFmpeg } from "../services/ffmpeg-service.ts";
 import type { PipelineState, SegmentState as OrcSegmentState } from "../services/tts-orchestrator.ts";
 
@@ -47,11 +51,10 @@ export function WorkspacePage() {
     if (selectedIndex < sentences.length - 1) setSelectedIndex(selectedIndex + 1);
   }, [selectedIndex, sentences.length, setSelectedIndex]);
 
-  const handleApprove = useCallback(() => {
+  const handleApprove = useCallback(async () => {
     const s = sentences[selectedIndex];
-    if (s && s.status === "generated") {
-      updateSentence(selectedIndex, { status: "approved" });
-    }
+    if (!s || s.status !== "generated") return;
+    updateSentence(selectedIndex, { status: "approved" });
   }, [sentences, selectedIndex, updateSentence]);
 
   const handleReject = useCallback(() => {
@@ -92,24 +95,31 @@ export function WorkspacePage() {
   const config = useProjectStore((s) => s.config);
 
   // On mount: build sentence list from rawText based on inputMode
-  // Direct Input → entire text = 1 sentence
-  // Upload File → each non-empty line = 1 sentence
-  // Also pre-split each sentence into text-only segments for preview
+  // - Direct Input → entire text → splitSentences → group every N segments into one sentence
+  // - Upload File → each non-empty line → splitSentences → segments
   useEffect(() => {
     if (rawText && sentences.length === 0) {
-      let texts: string[];
+      let sentenceSegmentGroups: string[][];
+
       if (inputMode === "upload") {
-        texts = rawText
+        const lines = rawText
           .split("\n")
           .map((line) => line.trim())
           .filter((line) => line.length > 0);
+        sentenceSegmentGroups = lines.map((line) =>
+          splitSentences(line, config.segmentMode, config.minTokens, config.maxTokens),
+        );
       } else {
-        texts = [rawText.trim()];
+        sentenceSegmentGroups = splitDirectInputIntoSentences(
+          rawText.trim(),
+          config.segmentMode,
+          config.minTokens,
+          config.maxTokens,
+        );
       }
-      const newSentences: SentenceState[] = texts.map((text, i) => {
-        // Pre-split text into segments so user can see them immediately
-        const segTexts = splitSentences(text, config.segmentMode, config.minTokens, config.maxTokens);
-        const segments: OrcSegmentState[] = segTexts.map((segText, si) => ({
+
+      const newSentences: SentenceState[] = sentenceSegmentGroups.map((segs, i) => {
+        const segments: OrcSegmentState[] = segs.map((segText, si) => ({
           index: si,
           text: segText,
           status: "pending" as const,
@@ -119,7 +129,7 @@ export function WorkspacePage() {
         const pipeline: PipelineState = { segments };
         return {
           index: i,
-          text,
+          text: segs.join(""),
           status: "pending" as const,
           pipeline,
         };
@@ -156,11 +166,30 @@ export function WorkspacePage() {
             <>
               {/* Fixed header + waveform (non-scrolling) */}
               <div className="shrink-0 px-6 pt-6 pb-2 flex flex-col gap-5 bg-bg-primary">
-                <WorkspaceHeader canApproveReject={canApproveReject} />
-                <WaveformPlayer
-                  ref={waveformRef}
-                  onCurrentSegmentChange={setActiveSegmentIndex}
-                />
+                <WorkspaceHeader canApproveReject={canApproveReject} onApprove={handleApprove} />
+                {(() => {
+                  const currentSentence = sentences[selectedIndex];
+                  const currentSegmentCount =
+                    currentSentence?.pipeline?.segments?.length ?? 0;
+
+                  // Per-sentence rule: 當前 sentence 的 segment 數 >
+                  // MAX_SEGMENTS_FOR_PLAYER (=10) 就不顯示 WaveformPlayer，
+                  // 避免 canvas 60fps 重繪 + O(N) getBarColor 在大量 segments
+                  // 下吃 CPU。
+                  if (currentSegmentCount > MAX_SEGMENTS_FOR_PLAYER) return null;
+
+                  // Cross-project rule: Direct Input 切出多句（即整篇 segment
+                  // 總數 > MAX_SEGMENTS_PER_SENTENCE）→ 所有 sentence 都不顯示
+                  // player，包括最後一句即使 ≤10 segments。
+                  if (inputMode === "direct" && sentences.length > 1) return null;
+
+                  return (
+                    <WaveformPlayer
+                      ref={waveformRef}
+                      onCurrentSegmentChange={setActiveSegmentIndex}
+                    />
+                  );
+                })()}
               </div>
               {/* Scrollable content */}
               <div className="flex-1 overflow-auto px-6 pb-6 pt-4 flex flex-col gap-5">
