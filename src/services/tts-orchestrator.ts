@@ -1,5 +1,5 @@
 import type { TtsConfig } from "../config/index";
-import type { FadeCurve } from "./ffmpeg-service";
+import type { ConcatProgress, FadeCurve } from "./ffmpeg-service";
 import type { SegmentMode } from "../utils/preprocessing";
 import type { ZeroShotRequest } from "./tts-client";
 import { preprocessText, splitSentences, generateUttId } from "../utils/preprocessing";
@@ -63,6 +63,8 @@ export interface GenerateAllConfig {
   fadeCurve?: FadeCurve;
   startSilence?: number;
   endSilence?: number;
+  /** Skip auto-concat after generation; caller must invoke concatOnly() later. */
+  skipConcat?: boolean;
   config: TtsConfig;
 }
 
@@ -82,6 +84,7 @@ export interface RegenerateConfig {
 export interface OrchestratorCallbacks {
   onSegmentUpdate?: (index: number, segment: SegmentState) => void;
   onProgress?: (completed: number, total: number) => void;
+  onConcatProgress?: (info: ConcatProgress) => void;
   onConcatComplete?: (audio: ArrayBuffer) => void;
 }
 
@@ -143,7 +146,8 @@ async function recombineOutputs(
     concatenatedAudio = await concatWavsWithCrossfade(
       audios,
       crossfadeDuration,
-      fadeCurve
+      fadeCurve,
+      (info) => callbacks?.onConcatProgress?.(info),
     );
     callbacks?.onConcatComplete?.(concatenatedAudio);
     logger.orchestrator.info("Concat complete");
@@ -259,7 +263,14 @@ export async function generateAll(
     callbacks?.onProgress?.(completed, total);
   });
 
-  // Step 6: Concat
+  // Step 6: Concat (skipped if config.skipConcat — caller will invoke concatOnly later)
+  if (config.skipConcat) {
+    logger.orchestrator.info(
+      `Skipping auto-concat (skipConcat=true; ${segments.length} segments)`,
+    );
+    return state;
+  }
+
   const crossfadeDuration = config.crossfadeDuration ?? 0.05;
   const fadeCurve = config.fadeCurve ?? "tri";
 
@@ -276,7 +287,27 @@ export async function generateAll(
 }
 
 /**
- * Regenerate a single segment, then re-concat.
+ * Run concat on an existing PipelineState (no re-generation).
+ * Used only when the UI explicitly asks for a final concatenated artifact.
+ */
+export async function concatOnly(
+  state: PipelineState,
+  crossfadeDuration: number = 0.05,
+  fadeCurve: FadeCurve = "tri",
+  callbacks?: OrchestratorCallbacks,
+): Promise<PipelineState> {
+  const { concatenatedAudio } = await recombineOutputs(
+    state.segments,
+    crossfadeDuration,
+    fadeCurve,
+    callbacks,
+  );
+  return { ...state, concatenatedAudio };
+}
+
+/**
+ * Regenerate a single segment. Re-concat only if this pipeline already has
+ * preview audio from short-sentence auto-concat.
  * Saves old version to history before regenerating.
  * Corresponds to AC-27, AC-28, AC-30.
  */
@@ -330,7 +361,11 @@ export async function regenerateSegment(
   }
   callbacks?.onSegmentUpdate?.(index, { ...segment });
 
-  // AC-28: Re-concat
+  if (!state.concatenatedAudio) {
+    return state;
+  }
+
+  // Keep existing short-sentence preview audio fresh.
   const crossfadeDuration = rConfig.crossfadeDuration ?? 0.05;
   const fadeCurve = rConfig.fadeCurve ?? "tri";
 
@@ -347,7 +382,8 @@ export async function regenerateSegment(
 }
 
 /**
- * Regenerate all segments in a sentence.
+ * Regenerate all segments in a sentence. Re-concat only if this pipeline
+ * already has preview audio from short-sentence auto-concat.
  * Saves all existing versions to history before regenerating.
  * Corresponds to AC-29, AC-30.
  */
@@ -410,7 +446,11 @@ export async function regenerateSentence(
     callbacks?.onProgress?.(completed, total);
   });
 
-  // Re-concat
+  if (!state.concatenatedAudio) {
+    return state;
+  }
+
+  // Keep existing short-sentence preview audio fresh.
   const crossfadeDuration = rConfig.crossfadeDuration ?? 0.05;
   const fadeCurve = rConfig.fadeCurve ?? "tri";
 

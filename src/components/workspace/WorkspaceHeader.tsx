@@ -12,9 +12,11 @@ const STATUS_STYLE: Record<SentenceStatus, { bg: string; text: string; label: st
 
 interface WorkspaceHeaderProps {
   canApproveReject: boolean;
+  /** Approve callback (may run concat first for large-N sentences). */
+  onApprove?: () => void | Promise<void>;
 }
 
-export function WorkspaceHeader({ canApproveReject }: WorkspaceHeaderProps) {
+export function WorkspaceHeader({ canApproveReject, onApprove }: WorkspaceHeaderProps) {
   const sentences = useProjectStore((s) => s.sentences);
   const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
   const updateSentence = useProjectStore((s) => s.updateSentence);
@@ -83,7 +85,11 @@ export function WorkspaceHeader({ canApproveReject }: WorkspaceHeaderProps) {
 
           {/* Approve */}
           <button
-            onClick={() => updateSentence(selectedIndex, { status: "approved" })}
+            onClick={() =>
+              onApprove
+                ? onApprove()
+                : updateSentence(selectedIndex, { status: "approved" })
+            }
             disabled={!canApproveReject}
             className="flex items-center gap-1.5 text-xs font-medium text-white bg-status-approved rounded-md px-3 py-1.5 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
             title={canApproveReject ? "Approve this sentence" : "生成中，請稍候"}
