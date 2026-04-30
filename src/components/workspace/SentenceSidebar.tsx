@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useProjectStore, type SentenceStatus } from "../../stores/project-store.ts";
 import type { GenerationProgress } from "../../hooks/useGeneration.ts";
-
-type DownloadMode = "audio_metadata" | "audio_only";
+import {
+  concatWavsWithCrossfade,
+  type ConcatProgress,
+} from "../../services/ffmpeg-service.ts";
 
 const STATUS_CONFIG: Record<
   SentenceStatus,
@@ -39,6 +41,7 @@ export function SentenceSidebar({
   const projectId = useProjectStore((s) => s.projectId);
   const deleteProject = useProjectStore((s) => s.deleteProject);
   const config = useProjectStore((s) => s.config);
+  const inputMode = useProjectStore((s) => s.inputMode);
 
   const approvedCount = sentences.filter((s) => s.status === "approved").length;
   const pendingCount = sentences.filter(
@@ -46,22 +49,15 @@ export function SentenceSidebar({
   ).length;
   const errorCount = sentences.filter((s) => s.status === "error").length;
 
-  const [downloadMode, setDownloadMode] = useState<DownloadMode>("audio_metadata");
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  // Direct Input is split into multiple sentences (each ≤50 segments) so the
+  // user typically wants a single concatenated final audio → default ON.
+  // Upload mode usually wants per-line files → default OFF.
+  const [concatAll, setConcatAll] = useState(inputMode === "direct");
   const [showCleanupDialog, setShowCleanupDialog] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    if (!dropdownOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [dropdownOpen]);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadConcatProgress, setDownloadConcatProgress] =
+    useState<ConcatProgress | null>(null);
+  const [downloadConcatLabel, setDownloadConcatLabel] = useState("");
 
   const buildZip = useCallback((files: { name: string; data: Uint8Array }[]) => {
     // CRC32 lookup table
@@ -159,22 +155,86 @@ export function SentenceSidebar({
     return zipBuffer;
   }, []);
 
-  const handleDownloadZip = useCallback(() => {
-    const approved = sentences.filter(
-      (s) => s.status === "approved" && s.pipeline?.concatenatedAudio,
-    );
+  const handleDownloadZip = useCallback(async () => {
+    const approved = sentences.filter((s) => s.status === "approved");
     if (approved.length === 0) return;
 
-    const files: { name: string; data: Uint8Array }[] = approved.map((s) => ({
-      name: `${projectName}_sentence_${String(s.index + 1).padStart(3, "0")}.wav`,
-      data: new Uint8Array(s.pipeline!.concatenatedAudio!),
-    }));
+    setIsDownloading(true);
+    setDownloadConcatProgress(null);
+    setDownloadConcatLabel("");
 
-    // Include metadata.json when mode is audio_metadata
-    if (downloadMode === "audio_metadata") {
+    const files: { name: string; data: Uint8Array }[] = [];
+    const sentenceAudioForFinalConcat: ArrayBuffer[] = [];
+    const sentenceAudioName = (index: number) =>
+      `${projectName}_sentence_${String(index + 1).padStart(3, "0")}.wav`;
+    const segmentAudioName = (sentenceIndex: number, segmentIndex: number) =>
+      `${projectName}_sentence_${String(sentenceIndex + 1).padStart(3, "0")}_segment_${String(segmentIndex + 1).padStart(3, "0")}.wav`;
+
+    try {
+      for (const s of approved) {
+        const pipeline = s.pipeline;
+        if (!pipeline) continue;
+
+        if (pipeline.concatenatedAudio) {
+          files.push({
+            name: sentenceAudioName(s.index),
+            data: new Uint8Array(pipeline.concatenatedAudio),
+          });
+          sentenceAudioForFinalConcat.push(pipeline.concatenatedAudio);
+          continue;
+        }
+
+        const segmentAudios = pipeline.segments
+          .filter((seg) => seg.status === "success" && seg.audio)
+          .map((seg) => seg.audio!);
+
+        if (concatAll) {
+          if (segmentAudios.length === 1) {
+            sentenceAudioForFinalConcat.push(segmentAudios[0]);
+          } else if (segmentAudios.length > 1) {
+            setDownloadConcatLabel(
+              `合併句子 ${String(s.index + 1).padStart(3, "0")}`,
+            );
+            const sentenceAudio = await concatWavsWithCrossfade(
+              segmentAudios,
+              config.crossfadeDuration ?? 0.05,
+              config.fadeCurve ?? "tri",
+              setDownloadConcatProgress,
+            );
+            sentenceAudioForFinalConcat.push(sentenceAudio);
+          }
+        } else {
+          pipeline.segments.forEach((seg) => {
+            if (!seg.audio || seg.status !== "success") return;
+            files.push({
+              name: segmentAudioName(s.index, seg.index),
+              data: new Uint8Array(seg.audio),
+            });
+          });
+        }
+      }
+
+      // Concat all approved sentences into one WAV only when explicitly checked.
+      if (concatAll && sentenceAudioForFinalConcat.length > 0) {
+        setDownloadConcatLabel("合併所有句子");
+        const concatenated = await concatWavsWithCrossfade(
+          sentenceAudioForFinalConcat,
+          config.crossfadeDuration ?? 0.05,
+          config.fadeCurve ?? "tri",
+          setDownloadConcatProgress,
+        );
+        files.push({
+          name: `${projectName}_all_sentences.wav`,
+          data: new Uint8Array(concatenated),
+        });
+      }
+
+      // Always include metadata.json
       const metadata = {
         project: projectName,
         exportedAt: new Date().toISOString(),
+        concatAll,
+        concatAllAudioFile: concatAll ? `${projectName}_all_sentences.wav` : null,
         config: {
           language: config.language,
           promptLanguage: config.promptLanguage,
@@ -205,12 +265,18 @@ export function SentenceSidebar({
             .filter((seg) => seg.duration != null)
             .reduce((sum, seg) => sum + seg.duration!, 0) ?? null,
           audioFile: s.status === "approved" && s.pipeline?.concatenatedAudio
-            ? `${projectName}_sentence_${String(s.index + 1).padStart(3, "0")}.wav`
+            ? sentenceAudioName(s.index)
             : null,
+          segmentFiles:
+            s.status === "approved" && !concatAll && !s.pipeline?.concatenatedAudio
+              ? s.pipeline?.segments
+                  .filter((seg) => seg.status === "success" && seg.audio)
+                  .map((seg) => segmentAudioName(s.index, seg.index)) ?? []
+              : [],
           segments: (() => {
             const segs = s.pipeline?.segments ?? [];
             let offset = 0;
-            return segs.map((seg, i) => {
+            return segs.map((seg, si) => {
               const start = offset;
               const dur = seg.duration ?? 0;
               offset += dur;
@@ -218,7 +284,7 @@ export function SentenceSidebar({
                 ? seg.wordSegmentation.map((ws) => (ws.useTailo ? ws.tailo : ws.word)).join("")
                 : seg.text;
               return {
-                index: i,
+                index: si,
                 text: seg.text,
                 ttsText: ttsText !== seg.text ? ttsText : undefined,
                 start,
@@ -239,18 +305,24 @@ export function SentenceSidebar({
         name: "metadata.json",
         data: encoder.encode(JSON.stringify(metadata, null, 2)),
       });
-    }
 
-    const zipBuffer = buildZip(files);
-    const blob = new Blob([zipBuffer], { type: "application/zip" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${projectName}_approved.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setShowCleanupDialog(true);
-  }, [sentences, projectName, downloadMode, config, buildZip]);
+      const zipBuffer = buildZip(files);
+      const blob = new Blob([zipBuffer], { type: "application/zip" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${projectName}_approved.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setShowCleanupDialog(true);
+    } catch (e) {
+      console.error("Failed to build approved ZIP:", e);
+    } finally {
+      setIsDownloading(false);
+      setDownloadConcatProgress(null);
+      setDownloadConcatLabel("");
+    }
+  }, [sentences, projectName, concatAll, config, buildZip]);
 
   return (
     <aside className="w-[340px] shrink-0 bg-bg-nav border-r border-border flex flex-col">
@@ -382,75 +454,77 @@ export function SentenceSidebar({
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-border">
-        <div className="relative" ref={dropdownRef}>
-          {/* Dropdown menu (above the button) */}
-          {dropdownOpen && (
-            <div className="absolute bottom-full left-0 right-0 mb-1 bg-bg-secondary border border-border rounded-md p-1 flex flex-col gap-0.5 z-20">
-              <button
-                onClick={() => { setDownloadMode("audio_metadata"); setDropdownOpen(false); }}
-                className={`flex items-center gap-2 w-full px-3 py-2 rounded text-[13px] transition-colors ${
-                  downloadMode === "audio_metadata" ? "bg-bg-tertiary text-text-primary" : "text-text-secondary hover:bg-bg-tertiary"
-                }`}
+      <div className="flex flex-col gap-2 p-4 border-t border-border">
+        <button
+          onClick={handleDownloadZip}
+          disabled={approvedCount === 0 || isDownloading}
+          className="flex items-center justify-center gap-1.5 text-[13px] font-medium text-white bg-status-approved rounded-md py-2 hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" x2="12" y1="15" y2="3" />
+          </svg>
+          {isDownloading ? "Preparing ZIP..." : "Download Approved (ZIP)"}
+        </button>
+        <label className="flex items-center gap-2 px-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={concatAll}
+            onChange={(e) => setConcatAll(e.target.checked)}
+            className="w-4 h-4 rounded border-border-input bg-transparent text-accent-primary accent-accent-primary cursor-pointer"
+          />
+          <span className="text-[12px] text-text-secondary">
+            Concat all sentences
+          </span>
+        </label>
+      </div>
+      {isDownloading && downloadConcatProgress && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-bg-secondary border border-border-secondary rounded-xl w-full max-w-[420px] p-6 flex flex-col gap-4 shadow-xl">
+            <div className="flex items-center gap-3">
+              <svg
+                className="w-5 h-5 text-accent-primary animate-spin"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
-                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-                  <path d="m3.3 7 8.7 5 8.7-5" />
-                  <path d="M12 22V12" />
-                </svg>
-                <span className="flex-1 text-left font-medium">Audio + Metadata</span>
-                {downloadMode === "audio_metadata" && (
-                  <svg className="w-3.5 h-3.5 text-status-approved shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
-              </button>
-              <button
-                onClick={() => { setDownloadMode("audio_only"); setDropdownOpen(false); }}
-                className={`flex items-center gap-2 w-full px-3 py-2 rounded text-[13px] transition-colors ${
-                  downloadMode === "audio_only" ? "bg-bg-tertiary text-text-primary" : "text-text-secondary hover:bg-bg-tertiary"
-                }`}
-              >
-                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 18V5l12-2v13" />
-                  <circle cx="6" cy="18" r="3" />
-                  <circle cx="18" cy="16" r="3" />
-                </svg>
-                <span className="flex-1 text-left">Audio Only</span>
-                {downloadMode === "audio_only" && (
-                  <svg className="w-3.5 h-3.5 text-status-approved shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
-              </button>
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                <path d="M21 3v5h-5" />
+              </svg>
+              <h3 className="text-base font-semibold text-text-primary">
+                正在合成下載音檔
+              </h3>
             </div>
-          )}
-          {/* Split button */}
-          <div className="flex">
-            <button
-              onClick={handleDownloadZip}
-              disabled={approvedCount === 0}
-              className="flex-1 flex items-center justify-center gap-1.5 text-[13px] font-medium text-white bg-status-approved rounded-l-md py-2 hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" x2="12" y1="15" y2="3" />
-              </svg>
-              Download Approved (ZIP)
-            </button>
-            <button
-              onClick={() => setDropdownOpen((v) => !v)}
-              disabled={approvedCount === 0}
-              className="flex items-center justify-center px-2 text-white bg-emerald-600 rounded-r-md border-l border-emerald-700 hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <svg className={`w-3.5 h-3.5 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
+            <p className="text-sm text-text-secondary">
+              {downloadConcatLabel}
+              {downloadConcatProgress.phase === "pass1"
+                ? `：第 ${downloadConcatProgress.current + 1} / ${downloadConcatProgress.total} 批`
+                : downloadConcatProgress.phase === "pass2"
+                  ? "：最終合併"
+                  : "：完成"}
+            </p>
+            <div className="w-full h-2 bg-bg-tertiary rounded-full overflow-hidden">
+              <div
+                className="h-full bg-accent-primary transition-all"
+                style={{
+                  width: `${Math.round(
+                    Math.min(
+                      1,
+                      (downloadConcatProgress.current +
+                        downloadConcatProgress.progress) /
+                        downloadConcatProgress.total,
+                    ) * 100,
+                  )}%`,
+                }}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
       {/* Export Cleanup Dialog */}
       {showCleanupDialog && (
         <div

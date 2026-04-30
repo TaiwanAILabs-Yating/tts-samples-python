@@ -8,10 +8,12 @@ import { AdvancedSettingsDrawer } from "../components/workspace/AdvancedSettings
 import { useProjectStore, type SentenceState } from "../stores/project-store.ts";
 import {
   splitSentences,
+  splitDirectInputIntoSentences,
   countTokens,
   validateSentenceCount,
   validateSentenceLengths,
-  MAX_SENTENCES,
+  MAX_CHARS_PER_LINE,
+  MAX_DIRECT_CHARS,
   MAX_PROJECTS,
 } from "../utils/preprocessing.ts";
 import type { PipelineState, SegmentState as OrcSegmentState } from "../services/tts-orchestrator.ts";
@@ -19,6 +21,7 @@ import type { PipelineState, SegmentState as OrcSegmentState } from "../services
 export function SetupPage() {
   const navigate = useNavigate();
   const rawText = useProjectStore((s) => s.rawText);
+  const inputMode = useProjectStore((s) => s.inputMode);
   const config = useProjectStore((s) => s.config);
   const isSettingsOpen = useProjectStore((s) => s.isSettingsOpen);
   const setSettingsOpen = useProjectStore((s) => s.setSettingsOpen);
@@ -32,12 +35,31 @@ export function SetupPage() {
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
 
-  // Build sentences from rawText: split by newline for both direct and upload modes
+  // Build sentences from rawText.
+  // - direct: split entire text into segments via splitSentences, then group
+  //   every MAX_SEGMENTS_PER_SENTENCE segments into one sentence.
+  // - upload: each non-empty line becomes one sentence.
+  // Memoised separately as `directSegmentGroups` so handleCreate can reuse the
+  // exact same segment chunking.
+  const directSegmentGroups = useMemo(() => {
+    const text = rawText.trim();
+    if (!text || inputMode !== "direct") return [];
+    return splitDirectInputIntoSentences(
+      text,
+      config.segmentMode,
+      config.minTokens,
+      config.maxTokens,
+    );
+  }, [rawText, inputMode, config.segmentMode, config.minTokens, config.maxTokens]);
+
   const sentenceTexts = useMemo(() => {
     const text = rawText.trim();
     if (!text) return [];
+    if (inputMode === "direct") {
+      return directSegmentGroups.map((segs) => segs.join(""));
+    }
     return text.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-  }, [rawText]);
+  }, [rawText, inputMode, directSegmentGroups]);
 
   // Validation: sentence count
   const sentenceCountValidation = useMemo(() => {
@@ -45,11 +67,23 @@ export function SetupPage() {
     return validateSentenceCount(sentenceTexts);
   }, [sentenceTexts]);
 
-  // Validation: sentence lengths (per-line char limit)
-  const sentenceLengthValidation = useMemo(
-    () => (rawText ? validateSentenceLengths(rawText) : null),
-    [rawText],
-  );
+  // Validation: sentence lengths.
+  // - direct: whole text is one sentence, cap = MAX_DIRECT_CHARS (total chars).
+  // - upload: per-line cap = MAX_CHARS_PER_LINE.
+  const sentenceLengthValidation = useMemo(() => {
+    if (!rawText) return null;
+    if (inputMode === "direct") {
+      const length = rawText.trim().length;
+      return {
+        valid: length <= MAX_DIRECT_CHARS,
+        violations:
+          length <= MAX_DIRECT_CHARS
+            ? []
+            : [{ line: 1, text: rawText, length }],
+      };
+    }
+    return validateSentenceLengths(rawText, MAX_CHARS_PER_LINE);
+  }, [rawText, inputMode]);
 
   // Validation: project count limit
   const isProjectLimitReached = savedProjects.length >= MAX_PROJECTS;
@@ -81,21 +115,46 @@ export function SetupPage() {
     setShowImportConfirm(false);
   };
 
-  // Preview: split each sentence into segments using current config
+  // Preview: each sentence's segment list.
+  // - direct mode: reuse pre-computed directSegmentGroups (avoids second split,
+  //   keeping segmentation identical to what handleCreate will build).
+  // - upload mode: re-split each line (each line is a sentence).
   const previewSegments = useMemo(() => {
     if (!showPreview) return [];
+    if (inputMode === "direct") {
+      return directSegmentGroups.map((segs, i) => ({
+        sentenceIndex: i,
+        text: segs.join(""),
+        segments: segs,
+      }));
+    }
     return sentenceTexts.map((text, i) => ({
       sentenceIndex: i,
       text,
       segments: splitSentences(text, config.segmentMode, config.minTokens, config.maxTokens),
     }));
-  }, [showPreview, sentenceTexts, config.segmentMode, config.minTokens, config.maxTokens]);
+  }, [
+    showPreview,
+    inputMode,
+    sentenceTexts,
+    directSegmentGroups,
+    config.segmentMode,
+    config.minTokens,
+    config.maxTokens,
+  ]);
 
   const handleCreate = () => {
-    // Build new sentences directly from current rawText + config
-    const newSentences: SentenceState[] = sentenceTexts.map((text, i) => {
-      const segTexts = splitSentences(text, config.segmentMode, config.minTokens, config.maxTokens);
-      const segments: OrcSegmentState[] = segTexts.map((segText, si) => ({
+    // Build new sentences from segment groups (direct) or each line split
+    // again (upload). Both paths produce string[][] of segments.
+    const sentenceSegmentGroups: string[][] =
+      inputMode === "direct"
+        ? directSegmentGroups
+        : sentenceTexts.map((text) =>
+            splitSentences(text, config.segmentMode, config.minTokens, config.maxTokens),
+          );
+
+    const newSentences: SentenceState[] = sentenceSegmentGroups.map((segs, i) => {
+      const segments: OrcSegmentState[] = segs.map((segText, si) => ({
         index: si,
         text: segText,
         status: "pending" as const,
@@ -103,7 +162,12 @@ export function SetupPage() {
         history: [],
       }));
       const pipeline: PipelineState = { segments };
-      return { index: i, text, status: "pending" as const, pipeline };
+      return {
+        index: i,
+        text: segs.join(""),
+        status: "pending" as const,
+        pipeline,
+      };
     });
 
     useProjectStore.setState({

@@ -298,6 +298,46 @@ export function generateUttId(basename: string, index: number): string {
 /** Maximum characters per sentence line. */
 export const MAX_CHARS_PER_LINE = 1000;
 
+/** Maximum characters for Direct Input (whole-text limit). */
+export const MAX_DIRECT_CHARS = 50_000;
+
+/**
+ * Direct Input 模式每個 sentence 最多包含的 segment 數。
+ *
+ * 等同 ffmpeg-service 的 CONCAT_BATCH_SIZE — 把 Direct Input 每 N segments 切
+ * 成一個 sentence，確保每個 sentence 都能單批 concat 不踩 timeout / OOM。
+ */
+export const MAX_SEGMENTS_PER_SENTENCE = 50;
+
+/**
+ * 當前選中 sentence 的 segment 數超過此值時，不顯示 WaveformPlayer。
+ *
+ * 比 MAX_SEGMENTS_PER_SENTENCE (50) 更嚴格 — 因為 WaveformPlayer canvas 60fps
+ * 重繪 + 每 bar O(N) 顏色搜尋的成本，即使 50 segments 仍可能影響流暢度。
+ */
+export const MAX_SEGMENTS_FOR_PLAYER = 10;
+
+/**
+ * 把 Direct Input 的單一長文按 segment 切分後再每 N 段拼成一個 sentence。
+ *
+ * 回傳 string[][]：外層是 sentence、內層是該句的 segment 文字。
+ * 不做二次 splitSentences；caller 直接用內層段陣列建 SentenceState。
+ */
+export function splitDirectInputIntoSentences(
+  text: string,
+  segmentMode: SegmentMode = SEGMENT_MODE_SENTENCE,
+  minTokens: number = 10,
+  maxTokens: number = 40,
+  segmentsPerSentence: number = MAX_SEGMENTS_PER_SENTENCE,
+): string[][] {
+  const allSegments = splitSentences(text, segmentMode, minTokens, maxTokens);
+  const groups: string[][] = [];
+  for (let i = 0; i < allSegments.length; i += segmentsPerSentence) {
+    groups.push(allSegments.slice(i, i + segmentsPerSentence));
+  }
+  return groups;
+}
+
 export interface SentenceLengthValidation {
   valid: boolean;
   violations: { line: number; text: string; length: number }[];

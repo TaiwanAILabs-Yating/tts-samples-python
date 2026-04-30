@@ -4,9 +4,12 @@ import {
   generateAll,
   regenerateSegment,
   regenerateSentence,
+  concatOnly,
   type PipelineState,
   type OrchestratorCallbacks,
 } from "../services/tts-orchestrator.ts";
+import { type ConcatProgress } from "../services/ffmpeg-service.ts";
+import { MAX_SEGMENTS_FOR_PLAYER } from "../utils/preprocessing.ts";
 import { getConfig } from "../config/index.ts";
 import { logger } from "../utils/logger.ts";
 
@@ -19,7 +22,6 @@ export function useGeneration() {
   const config = useProjectStore((s) => s.config);
   const sentences = useProjectStore((s) => s.sentences);
   const updateSentence = useProjectStore((s) => s.updateSentence);
-  const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<GenerationProgress | null>(null);
@@ -31,6 +33,10 @@ export function useGeneration() {
 
   // Track which specific segment is currently regenerating (null = none)
   const [regeneratingSegmentKey, setRegeneratingSegmentKey] = useState<string | null>(null);
+
+  // Concat-only state for explicit final-audio operations.
+  const [isConcatting, setIsConcatting] = useState(false);
+  const [concatProgress, setConcatProgress] = useState<ConcatProgress | null>(null);
 
   const ttsConfig = useRef(getConfig({
     modelId: config.modelId,
@@ -90,6 +96,14 @@ export function useGeneration() {
         },
       };
 
+      // Auto-concat only for short sentences. Larger sentences are exported as
+      // segments unless the user explicitly asks for final concat at download.
+      // Reuse the already-built sentence.pipeline.segments to avoid running
+      // splitSentences a second time (which can produce different boundaries
+      // due to balanceSegments).
+      const segCount = sentence.pipeline?.segments.length ?? 0;
+      const skipConcat = segCount >= MAX_SEGMENTS_FOR_PLAYER;
+
       try {
         const pipeline = await generateAll(
           {
@@ -109,6 +123,7 @@ export function useGeneration() {
             fadeCurve: config.fadeCurve,
             startSilence: config.startSilence,
             endSilence: config.endSilence,
+            skipConcat,
             config: ttsConfig.current,
           },
           callbacks
@@ -135,14 +150,6 @@ export function useGeneration() {
     setIsGenerating(false);
     setProgress(null);
   }, [isGenerating, sentences, config, updateSentence]);
-
-  const handleApproveAll = useCallback(() => {
-    sentences.forEach((s, i) => {
-      if (s.status === "generated") {
-        updateSentence(i, { status: "approved" });
-      }
-    });
-  }, [sentences, updateSentence]);
 
   const handleRegenerateSentence = useCallback(
     async (sentenceIndex: number) => {
@@ -272,11 +279,60 @@ export function useGeneration() {
   );
 
 
+  /**
+   * Concat the existing pipeline.segments into final audio.
+   * Used when a caller explicitly needs final audio from existing segments.
+   * Returns true on success, false on failure (no state change on failure).
+   */
+  const handleConcatOnly = useCallback(
+    async (sentenceIndex: number): Promise<boolean> => {
+      const sentence = useProjectStore.getState().sentences[sentenceIndex];
+      if (!sentence?.pipeline) return false;
+      if (sentence.pipeline.concatenatedAudio) return true;
+
+      setIsConcatting(true);
+      setConcatProgress(null);
+      try {
+        const updatedPipeline = await concatOnly(
+          sentence.pipeline,
+          config.crossfadeDuration ?? 0.05,
+          config.fadeCurve ?? "tri",
+          { onConcatProgress: (info) => setConcatProgress(info) },
+        );
+        updateSentence(sentenceIndex, { pipeline: updatedPipeline });
+        return true;
+      } catch (err) {
+        logger.generation.error(
+          `Concat-only failed for sentence ${sentenceIndex}:`,
+          err,
+        );
+        return false;
+      } finally {
+        setIsConcatting(false);
+        setConcatProgress(null);
+      }
+    },
+    [config, updateSentence],
+  );
+
+  const handleApproveAll = useCallback(async () => {
+    for (let i = 0; i < sentences.length; i++) {
+      const s = sentences[i];
+      if (s.status !== "generated") continue;
+      updateSentence(i, { status: "approved" });
+    }
+  }, [sentences, updateSentence]);
+
+  // canRegenerate is intentionally decoupled from isConcatting — the concat
+  // overlay (z-50, inset-0) blocks clicks anyway, and propagating this flag to
+  // 1485 segment cards would force a re-render storm even with React.memo.
   const canRegenerate = !isGenerating;
-  const canApproveReject = !isGenerating;
+  const canApproveReject = !isGenerating && !isConcatting;
 
   return {
     isGenerating,
+    isConcatting,
+    concatProgress,
     canRegenerate,
     canApproveReject,
     progress,
@@ -284,6 +340,7 @@ export function useGeneration() {
     regeneratingSegmentKey,
     handleGenerateAll,
     handleApproveAll,
+    handleConcatOnly,
     handleRegenerateSentence,
     handleRegenerateSegment,
   };

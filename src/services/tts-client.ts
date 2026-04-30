@@ -4,6 +4,8 @@ import { logger } from "../utils/logger";
 
 const END_SILENCE_TOKEN = "<|sil_200ms|>";
 
+const TTS_REQUEST_TIMEOUT_MS = 90_000;
+
 /**
  * Resolve the actual model ID based on language.
  * MasterZhengyanKaishi is split into Zh/Nan variants;
@@ -69,25 +71,39 @@ export async function sendZeroShotRequest(
   };
 
   logger.ttsClient.info(`POST ${config.zeroShotApiUrl} text="${req.text.slice(0, 30)}..."`);
-  const response = await fetch(config.zeroShotApiUrl, {
-    method: "POST",
-    headers: {
-      ...authHeaders,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
 
-  if (!response.ok) {
-    const text = await response.text();
-    logger.ttsClient.error(`Request failed: ${response.status} ${text}`);
-    throw new Error(
-      `Request failed with status ${response.status}: ${text}`
-    );
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TTS_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(config.zeroShotApiUrl, {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      logger.ttsClient.error(`Request failed: ${response.status} ${text}`);
+      throw new Error(
+        `Request failed with status ${response.status}: ${text}`
+      );
+    }
+
+    logger.ttsClient.info(`Response OK (${response.status})`);
+    return await response.arrayBuffer();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`TTS request timed out after ${TTS_REQUEST_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-
-  logger.ttsClient.info(`Response OK (${response.status})`);
-  return response.arrayBuffer();
 }
 
 export interface PresignResult {
