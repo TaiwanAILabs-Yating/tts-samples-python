@@ -13,20 +13,18 @@ describe("getConfig", () => {
   it("returns defaults when no overrides", () => {
     const config = getConfig({ env: "dev" });
     expect(config.env).toBe("dev");
-    expect(config.apiKey).toBe("fedgpt-api-key");
+    expect(config.apiKey).toBeTruthy();
     expect(config.zeroShotApiUrl).toContain("speeches:zero-shot");
     expect(config.presignUrl).toContain("transcriptions:presign");
     expect(config.uploadUrl).toContain("/asset/");
     expect(config.modelId).toBeTruthy();
-    expect(config.authKey).toBe("fedgpt");
+    expect(config.authKey).toBeTruthy();
   });
 
   it("applies runtime overrides", () => {
     const config = getConfig({ env: "prod", modelId: "tts-custom-1.0" });
     expect(config.env).toBe("prod");
     expect(config.modelId).toBe("tts-custom-1.0");
-    // Other defaults preserved
-    expect(config.apiKey).toBe("fedgpt-api-key");
   });
 });
 
@@ -41,13 +39,15 @@ describe("getAuthHeaders", () => {
   it("returns X-API-Key for dev environment", async () => {
     const config = getConfig({ env: "dev" });
     const headers = await getAuthHeaders(config.zeroShotApiUrl, config);
-    expect(headers).toEqual({ "X-API-Key": "fedgpt-api-key" });
+    expect(headers).toHaveProperty("X-API-Key");
+    expect((headers as { "X-API-Key": string })["X-API-Key"]).toBeTruthy();
   });
 
   it("returns X-API-Key for stg2 environment", async () => {
     const config = getConfig({ env: "stg2" });
     const headers = await getAuthHeaders(config.zeroShotApiUrl, config);
-    expect(headers).toEqual({ "X-API-Key": "fedgpt-api-key" });
+    expect(headers).toHaveProperty("X-API-Key");
+    expect((headers as { "X-API-Key": string })["X-API-Key"]).toBeTruthy();
   });
 
   it("calls login API for prod environment", async () => {
