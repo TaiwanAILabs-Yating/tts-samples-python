@@ -167,51 +167,42 @@ export function SentenceSidebar({
     const sentenceAudioForFinalConcat: ArrayBuffer[] = [];
     const sentenceAudioName = (index: number) =>
       `${projectName}_sentence_${String(index + 1).padStart(3, "0")}.wav`;
-    const segmentAudioName = (sentenceIndex: number, segmentIndex: number) =>
-      `${projectName}_sentence_${String(sentenceIndex + 1).padStart(3, "0")}_segment_${String(segmentIndex + 1).padStart(3, "0")}.wav`;
 
     try {
       for (const s of approved) {
         const pipeline = s.pipeline;
         if (!pipeline) continue;
 
+        let sentenceAudio: ArrayBuffer | undefined;
+
         if (pipeline.concatenatedAudio) {
-          files.push({
-            name: sentenceAudioName(s.index),
-            data: new Uint8Array(pipeline.concatenatedAudio),
-          });
-          sentenceAudioForFinalConcat.push(pipeline.concatenatedAudio);
-          continue;
-        }
+          sentenceAudio = pipeline.concatenatedAudio;
+        } else {
+          const segmentAudios = pipeline.segments
+            .filter((seg) => seg.status === "success" && seg.audio)
+            .map((seg) => seg.audio!);
 
-        const segmentAudios = pipeline.segments
-          .filter((seg) => seg.status === "success" && seg.audio)
-          .map((seg) => seg.audio!);
-
-        if (concatAll) {
+          if (segmentAudios.length === 0) continue;
           if (segmentAudios.length === 1) {
-            sentenceAudioForFinalConcat.push(segmentAudios[0]);
-          } else if (segmentAudios.length > 1) {
+            sentenceAudio = segmentAudios[0];
+          } else {
             setDownloadConcatLabel(
               `合併句子 ${String(s.index + 1).padStart(3, "0")}`,
             );
-            const sentenceAudio = await concatWavsWithCrossfade(
+            sentenceAudio = await concatWavsWithCrossfade(
               segmentAudios,
               config.crossfadeDuration ?? 0.05,
               config.fadeCurve ?? "tri",
               setDownloadConcatProgress,
             );
-            sentenceAudioForFinalConcat.push(sentenceAudio);
           }
-        } else {
-          pipeline.segments.forEach((seg) => {
-            if (!seg.audio || seg.status !== "success") return;
-            files.push({
-              name: segmentAudioName(s.index, seg.index),
-              data: new Uint8Array(seg.audio),
-            });
-          });
         }
+
+        files.push({
+          name: sentenceAudioName(s.index),
+          data: new Uint8Array(sentenceAudio),
+        });
+        sentenceAudioForFinalConcat.push(sentenceAudio);
       }
 
       // Concat all approved sentences into one WAV only when explicitly checked.
@@ -264,15 +255,8 @@ export function SentenceSidebar({
           duration: s.pipeline?.segments
             .filter((seg) => seg.duration != null)
             .reduce((sum, seg) => sum + seg.duration!, 0) ?? null,
-          audioFile: s.status === "approved" && s.pipeline?.concatenatedAudio
-            ? sentenceAudioName(s.index)
-            : null,
-          segmentFiles:
-            s.status === "approved" && !concatAll && !s.pipeline?.concatenatedAudio
-              ? s.pipeline?.segments
-                  .filter((seg) => seg.status === "success" && seg.audio)
-                  .map((seg) => segmentAudioName(s.index, seg.index)) ?? []
-              : [],
+          audioFile:
+            s.status === "approved" ? sentenceAudioName(s.index) : null,
           segments: (() => {
             const segs = s.pipeline?.segments ?? [];
             let offset = 0;
