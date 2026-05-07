@@ -1,8 +1,6 @@
 import type { TtsConfig } from "../config/index";
 import type { ConcatProgress, FadeCurve } from "./ffmpeg-service";
-import type { SegmentMode } from "../utils/preprocessing";
 import type { ZeroShotRequest } from "./tts-client";
-import { preprocessText, splitSentences, generateUttId } from "../utils/preprocessing";
 import { sendZeroShotRequest, uploadPromptVoice } from "./tts-client";
 import { concatWavsWithCrossfade, padAudioWithSilence } from "./ffmpeg-service";
 import { getWavDuration } from "../utils/audio";
@@ -45,14 +43,15 @@ export interface PipelineState {
   promptVoiceAssetKey?: string;
 }
 
-export interface GenerateAllConfig {
+export interface SegmentInput {
   text: string;
+  wordSegmentation?: WordSegState[];
+}
+
+export interface GenerateAllConfig {
+  segments: SegmentInput[];
   promptVoiceFile: File | Blob;
   promptVoiceText: string;
-  audioBasename?: string;
-  segmentMode?: SegmentMode;
-  minTokens?: number;
-  maxTokens?: number;
   language?: string;
   promptLanguage?: string;
   addEndSilence?: boolean;
@@ -104,13 +103,14 @@ function buildTtsText(segment: SegmentState): string {
     .join("");
 }
 
-function buildSegmentStates(texts: string[]): SegmentState[] {
-  return texts.map((text, index) => ({
+function buildSegmentStates(inputs: SegmentInput[]): SegmentState[] {
+  return inputs.map((input, index) => ({
     index,
-    text,
+    text: input.text,
     status: "pending" as SegmentStatus,
     attempts: 0,
     history: [],
+    ...(input.wordSegmentation ? { wordSegmentation: input.wordSegmentation } : {}),
   }));
 }
 
@@ -164,37 +164,29 @@ async function recombineOutputs(
 // --- Public functions ---
 
 /**
- * Full pipeline: text → segments → TTS → concat.
- * Equivalent to Python main.py:main() Steps 1-5.
+ * Full pipeline: pre-split segments → TTS → concat.
+ * Caller is responsible for splitting; orchestrator only generates audio.
  */
 export async function generateAll(
   config: GenerateAllConfig,
   callbacks?: OrchestratorCallbacks
 ): Promise<PipelineState> {
-  // Step 1: Preprocess text
-  logger.orchestrator.info("Step 1: Preprocessing text...");
-  const cleanedText = preprocessText(config.text);
+  if (config.segments.length === 0) {
+    throw new Error("generateAll requires at least one segment");
+  }
 
-  // Step 2: Split into segments
-  logger.orchestrator.info("Step 2: Splitting into segments...");
-  const texts = splitSentences(
-    cleanedText,
-    config.segmentMode ?? "sentence",
-    config.minTokens ?? 10,
-    config.maxTokens ?? 40
-  );
-  logger.orchestrator.info(`Split into ${texts.length} segments`);
+  // Step 1: Build segment states from caller-supplied inputs
+  const segments = buildSegmentStates(config.segments);
+  logger.orchestrator.info(`Step 1: Built ${segments.length} segment states`);
 
-  const segments = buildSegmentStates(texts);
-
-  // Step 3: Pad prompt voice with silence (match Python behavior)
+  // Step 2: Pad prompt voice with silence (match Python behavior)
   const startSilence = config.startSilence ?? 0;
   const endSilence = config.endSilence ?? 0;
   let promptFile: File | Blob = config.promptVoiceFile;
 
   if (startSilence > 0 || endSilence > 0) {
     logger.orchestrator.info(
-      `Step 3a: Padding prompt voice (start=${startSilence}s, end=${endSilence}s)`
+      `Step 2a: Padding prompt voice (start=${startSilence}s, end=${endSilence}s)`
     );
     const originalBuffer = await config.promptVoiceFile.arrayBuffer();
     const paddedBuffer = await padAudioWithSilence(
@@ -205,8 +197,8 @@ export async function generateAll(
     promptFile = new Blob([paddedBuffer], { type: "audio/wav" });
   }
 
-  // Step 4: Upload prompt voice
-  logger.orchestrator.info("Step 4: Uploading prompt voice...");
+  // Step 3: Upload prompt voice
+  logger.orchestrator.info("Step 3: Uploading prompt voice...");
   const promptVoiceAssetKey = await uploadPromptVoice(
     promptFile,
     "prompt.wav",
@@ -219,8 +211,8 @@ export async function generateAll(
     promptVoiceAssetKey,
   };
 
-  // Step 5: Generate audio for each segment (parallel with retry)
-  logger.orchestrator.info("Step 5: Generating audio for segments...");
+  // Step 4: Generate audio for each segment (parallel with retry)
+  logger.orchestrator.info("Step 4: Generating audio for segments...");
   const concurrency = config.concurrency ?? 3;
   const maxRetries = config.maxRetries ?? 3;
   const retryBaseDelay = config.retryBaseDelay ?? 1.0;
@@ -263,7 +255,7 @@ export async function generateAll(
     callbacks?.onProgress?.(completed, total);
   });
 
-  // Step 6: Concat (skipped if config.skipConcat — caller will invoke concatOnly later)
+  // Step 5: Concat (skipped if config.skipConcat — caller will invoke concatOnly later)
   if (config.skipConcat) {
     logger.orchestrator.info(
       `Skipping auto-concat (skipConcat=true; ${segments.length} segments)`,

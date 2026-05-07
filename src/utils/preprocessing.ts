@@ -17,24 +17,6 @@ const TRAILING_PUNCTUATION =
   /[。.，,、；;：:「」『』（）()\[\]【】\s]+$/;
 
 /**
- * Preprocess text by removing line number prefixes and joining lines.
- */
-export function preprocessText(text: string): string {
-  const lines = text.split("\n");
-
-  const cleanedLines: string[] = [];
-  for (const line of lines) {
-    // Remove line number prefix (pattern: "     N→")
-    const cleaned = line.replace(/^\s*\d+→/, "").trim();
-    if (cleaned) {
-      cleanedLines.push(cleaned);
-    }
-  }
-
-  return cleanedLines.join(" ");
-}
-
-/**
  * Strip punctuation from text edges.
  * - Leading: remove all punctuation
  * - Trailing: remove punctuation including period (keep ！？)

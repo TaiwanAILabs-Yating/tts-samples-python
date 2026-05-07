@@ -96,23 +96,32 @@ export function useGeneration() {
         },
       };
 
-      // Auto-concat only for short sentences. Larger sentences are exported as
-      // segments unless the user explicitly asks for final concat at download.
-      // Reuse the already-built sentence.pipeline.segments to avoid running
-      // splitSentences a second time (which can produce different boundaries
-      // due to balanceSegments).
-      const segCount = sentence.pipeline?.segments.length ?? 0;
-      const skipConcat = segCount >= MAX_SEGMENTS_FOR_PLAYER;
+      const segmentInputs = sentence.pipeline?.segments.map((s) => ({
+        text: s.text,
+        wordSegmentation: s.wordSegmentation,
+      })) ?? [];
+
+      if (segmentInputs.length === 0) {
+        updateSentence(idx, {
+          status: "error",
+          rejectNote: "No segments to generate",
+        });
+        globalCompleted++;
+        setProgress({ completed: globalCompleted, total: toGenerate.length });
+        continue;
+      }
+
+      // Auto-concat only for short sentences. Larger sentences are exported
+      // as segments unless the user explicitly asks for final concat at
+      // download.
+      const skipConcat = segmentInputs.length >= MAX_SEGMENTS_FOR_PLAYER;
 
       try {
         const pipeline = await generateAll(
           {
-            text: sentence.text,
+            segments: segmentInputs,
             promptVoiceFile: config.promptVoiceFile,
             promptVoiceText: config.promptVoiceText,
-            segmentMode: config.segmentMode,
-            minTokens: config.minTokens,
-            maxTokens: config.maxTokens,
             language: config.language,
             promptLanguage: config.promptLanguage,
             addEndSilence: config.addEndSilence,
