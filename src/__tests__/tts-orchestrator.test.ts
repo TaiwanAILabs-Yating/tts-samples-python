@@ -49,12 +49,14 @@ const fakeConcatAudio = new ArrayBuffer(500);
 
 function makeGenerateAllConfig(overrides?: Partial<GenerateAllConfig>): GenerateAllConfig {
   return {
-    text: "第一句話。第二句話。第三句話。",
+    segments: [
+      { text: "第一句話" },
+      { text: "第二句話" },
+      { text: "第三句話" },
+    ],
     promptVoiceFile: new Blob(["audio"]),
     promptVoiceText: "prompt text",
     config: fakeConfig,
-    minTokens: 1,
-    maxTokens: 4,
     concurrency: 3,
     maxRetries: 0,
     retryBaseDelay: 0.001,
@@ -99,9 +101,9 @@ describe("generateAll", () => {
     mockConcatWavs.mockResolvedValue(fakeConcatAudio);
   });
 
-  it("executes full pipeline: preprocess → split → upload → generate → concat", async () => {
+  it("executes pipeline: build segments → upload → generate → concat", async () => {
     const config = makeGenerateAllConfig({
-      text: "第一句。第二句。",
+      segments: [{ text: "第一句" }, { text: "第二句" }],
     });
 
     const result = await generateAll(config);
@@ -112,6 +114,8 @@ describe("generateAll", () => {
 
     expect(result.promptVoiceAssetKey).toBe("asset-key-abc");
     expect(result.segments).toHaveLength(2);
+    expect(result.segments[0].text).toBe("第一句");
+    expect(result.segments[1].text).toBe("第二句");
     expect(result.segments[0].status).toBe("success");
     expect(result.segments[1].status).toBe("success");
     expect(result.concatenatedAudio).toBe(fakeConcatAudio);
@@ -123,7 +127,7 @@ describe("generateAll", () => {
       .mockRejectedValueOnce(new Error("API error"));
 
     const config = makeGenerateAllConfig({
-      text: "成功句。失敗句。",
+      segments: [{ text: "成功句" }, { text: "失敗句" }],
       maxRetries: 0,
     });
 
@@ -145,7 +149,7 @@ describe("generateAll", () => {
     mockSendZeroShot.mockRejectedValue(new Error("server down"));
 
     const config = makeGenerateAllConfig({
-      text: "句子一。句子二。",
+      segments: [{ text: "句子一" }, { text: "句子二" }],
       maxRetries: 0,
     });
 
@@ -160,7 +164,7 @@ describe("generateAll", () => {
   it("calls onSegmentUpdate callbacks during generation", async () => {
     const onSegmentUpdate = vi.fn();
 
-    const config = makeGenerateAllConfig({ text: "唯一一句。" });
+    const config = makeGenerateAllConfig({ segments: [{ text: "唯一一句" }] });
     await generateAll(config, { onSegmentUpdate });
 
     // Called twice: once for "generating", once for "success"
@@ -178,7 +182,9 @@ describe("generateAll", () => {
   it("calls onProgress callback", async () => {
     const onProgress = vi.fn();
 
-    const config = makeGenerateAllConfig({ text: "第一句。第二句。" });
+    const config = makeGenerateAllConfig({
+      segments: [{ text: "第一句" }, { text: "第二句" }],
+    });
     await generateAll(config, { onProgress });
 
     expect(onProgress).toHaveBeenCalled();
@@ -191,7 +197,7 @@ describe("generateAll", () => {
   it("calls onConcatComplete callback", async () => {
     const onConcatComplete = vi.fn();
 
-    const config = makeGenerateAllConfig({ text: "一句話。" });
+    const config = makeGenerateAllConfig({ segments: [{ text: "一句話" }] });
     await generateAll(config, { onConcatComplete });
 
     expect(onConcatComplete).toHaveBeenCalledWith(fakeConcatAudio);
@@ -199,7 +205,7 @@ describe("generateAll", () => {
 
   it("passes language and addEndSilence to TTS request", async () => {
     const config = makeGenerateAllConfig({
-      text: "測試。",
+      segments: [{ text: "測試" }],
       language: "nan",
       addEndSilence: true,
       promptLanguage: "zh",
@@ -219,7 +225,7 @@ describe("generateAll", () => {
 
   it("uses custom crossfade settings", async () => {
     const config = makeGenerateAllConfig({
-      text: "甲。乙。",
+      segments: [{ text: "甲" }, { text: "乙" }],
       crossfadeDuration: 0.1,
       fadeCurve: "hsin",
     });
@@ -231,6 +237,63 @@ describe("generateAll", () => {
       0.1,
       "hsin",
       expect.any(Function),
+    );
+  });
+
+  it("preserves wordSegmentation in output segments", async () => {
+    const wordSeg = [
+      {
+        word: "佛七",
+        tailo: "huat4-tshit4",
+        tailoList: ["huat4-tshit4"],
+        inVocab: true,
+        useTailo: false,
+      },
+    ];
+
+    const config = makeGenerateAllConfig({
+      segments: [{ text: "佛七法會", wordSegmentation: wordSeg }],
+    });
+
+    const result = await generateAll(config);
+
+    expect(result.segments[0].wordSegmentation).toEqual(wordSeg);
+  });
+
+  it("uses tailo pronunciation in TTS request when useTailo is true", async () => {
+    const wordSeg = [
+      {
+        word: "佛七",
+        tailo: "huat4-tshit4",
+        tailoList: ["huat4-tshit4"],
+        inVocab: true,
+        useTailo: true,
+      },
+      {
+        word: "法會",
+        tailo: "huat-hue",
+        tailoList: ["huat-hue"],
+        inVocab: true,
+        useTailo: false,
+      },
+    ];
+
+    const config = makeGenerateAllConfig({
+      segments: [{ text: "佛七法會", wordSegmentation: wordSeg }],
+    });
+
+    await generateAll(config);
+
+    expect(mockSendZeroShot).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "huat4-tshit4法會" }),
+      fakeConfig,
+    );
+  });
+
+  it("throws when segments array is empty", async () => {
+    const config = makeGenerateAllConfig({ segments: [] });
+    await expect(generateAll(config)).rejects.toThrow(
+      "requires at least one segment",
     );
   });
 });

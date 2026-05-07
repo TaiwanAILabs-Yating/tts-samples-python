@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  SEGMENT_MODE_CLAUSE,
   SEGMENT_MODE_SENTENCE,
   balanceSegments,
   countTokens,
   ensureMaxTokens,
   forceSplitByChar,
   generateUttId,
-  preprocessText,
   splitSentences,
   validateSentenceLengths,
   stripPunctuation,
@@ -171,6 +171,44 @@ describe("splitSentences", () => {
   });
 });
 
+describe("splitSentences (clause mode)", () => {
+  it("splits a single line on clause delimiters", () => {
+    const result = splitSentences("一二三，四五六。", SEGMENT_MODE_CLAUSE, 10, 40);
+    expect(result).toEqual(["一二三", "四五六"]);
+  });
+
+  it("splits a long single line into many short clause segments", () => {
+    const text =
+      "無量義經德行品第一。如是我聞：一時，佛在王舍城耆闍崛山中，與大比丘眾萬二千人俱。";
+    const result = splitSentences(text, SEGMENT_MODE_CLAUSE, 10, 40);
+    expect(result.length).toBeGreaterThanOrEqual(4);
+    for (const seg of result) {
+      expect(seg).not.toMatch(/[，。；、]$/);
+      expect(seg).not.toMatch(/^[，。；、]/);
+    }
+  });
+
+  it("does not merge across line boundaries", () => {
+    const result = splitSentences("第一行，繼續\n第二行，繼續", SEGMENT_MODE_CLAUSE, 10, 40);
+    expect(result).toContain("第一行");
+    expect(result).toContain("第二行");
+    for (const seg of result) {
+      expect(seg).not.toContain("第一行繼續第二行");
+    }
+  });
+
+  it("does NOT call balanceSegments — keeps short clauses split", () => {
+    const text = "一，二，三，四，五，六，七，八";
+    const result = splitSentences(text, SEGMENT_MODE_CLAUSE, 10, 40);
+    expect(result).toHaveLength(8);
+  });
+
+  it("keeps Chinese-space-Chinese boundary as a split point", () => {
+    const result = splitSentences("中文 中文，後段", SEGMENT_MODE_CLAUSE, 10, 40);
+    expect(result.some((s) => s.includes("中文 中文"))).toBe(false);
+  });
+});
+
 describe("stripPunctuation", () => {
   it("removes leading punctuation", () => {
     expect(stripPunctuation("，你好")).toBe("你好");
@@ -247,23 +285,6 @@ describe("edge cases", () => {
     for (const seg of result) {
       expect(countTokens(seg)).toBeLessThanOrEqual(80);
     }
-  });
-});
-
-describe("preprocessText", () => {
-  it("removes line number prefixes", () => {
-    const input = "     1→hello\n     2→world";
-    expect(preprocessText(input)).toBe("hello world");
-  });
-
-  it("handles lines without prefixes", () => {
-    const input = "hello\nworld";
-    expect(preprocessText(input)).toBe("hello world");
-  });
-
-  it("skips empty lines", () => {
-    const input = "     1→hello\n\n     3→world";
-    expect(preprocessText(input)).toBe("hello world");
   });
 });
 
