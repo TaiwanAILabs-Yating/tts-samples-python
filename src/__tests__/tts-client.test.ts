@@ -160,6 +160,39 @@ describe("sendZeroShotRequest", () => {
     expect(body.input.text).toBe("<|nan|>你好");
   });
 
+  it.each([
+    { language: "zh", model: "MasterZhengyanKaishiZh" },
+    { language: "nan", model: "MasterZhengyanKaishiNan" },
+    { language: "ja", model: "MasterZhengyanKaishiZh" },
+    { language: "en", model: "MasterZhengyanKaishiZh" },
+  ])(
+    "resolves model $model and keeps <|$language|> tag for language=$language",
+    async ({ language, model }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(new ArrayBuffer(0), { status: 200 })
+      );
+
+      const config = getConfig({ env: "dev" });
+      expect(config.modelId).toBe("MasterZhengyanKaishi");
+      await sendZeroShotRequest(
+        {
+          text: "你好",
+          promptVoiceText: "參考",
+          promptVoiceAssetKey: "",
+          promptVoiceUrl: "",
+          language,
+        },
+        config
+      );
+
+      const body = JSON.parse(
+        vi.mocked(fetch).mock.calls[0][1]!.body as string
+      );
+      expect(body.modelConfig.model).toBe(model);
+      expect(body.input.text).toBe(`<|${language}|>你好`);
+    }
+  );
+
   it("appends end silence token when specified", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(new ArrayBuffer(0), { status: 200 })

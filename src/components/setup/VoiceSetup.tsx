@@ -222,6 +222,8 @@ export function VoiceSetup() {
           >
             <option value="zh">國語 (zh)</option>
             <option value="nan">臺語 (nan)</option>
+            <option value="ja">日文 (ja)</option>
+            <option value="en">英文 (en)</option>
           </select>
         </div>
       </div>

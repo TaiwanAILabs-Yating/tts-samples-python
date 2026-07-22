@@ -15,6 +15,9 @@ function resolveModelId(modelId: string, language?: string): string {
   if (modelId === "MasterZhengyanKaishi") {
     if (language === "zh") return "MasterZhengyanKaishiZh";
     if (language === "nan") return "MasterZhengyanKaishiNan";
+    // ja/en 暫時共用 Zh model
+    if (language === "ja") return "MasterZhengyanKaishiZh";
+    if (language === "en") return "MasterZhengyanKaishiZh";
   }
   return modelId;
 }
