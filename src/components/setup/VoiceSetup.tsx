@@ -220,10 +220,10 @@ export function VoiceSetup() {
             onChange={(e) => updateConfig({ promptLanguage: e.target.value })}
             className="bg-bg-primary text-text-primary text-sm rounded-md border border-border-input px-3 py-2.5 appearance-none cursor-pointer focus:outline-none focus:border-accent-primary"
           >
-            <option value="zh">國語 (zh)</option>
-            <option value="nan">臺語 (nan)</option>
-            <option value="ja">日文 (ja) Beta</option>
-            <option value="en">英文 (en) Beta</option>
+            <option value="zh">國語</option>
+            <option value="nan">臺語</option>
+            <option value="ja">日文 Beta</option>
+            <option value="en">英文 Beta</option>
           </select>
         </div>
       </div>
