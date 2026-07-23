@@ -1,14 +1,9 @@
 import type { TtsConfig } from "../config/index";
 import { getAuthHeaders } from "./auth";
 import { logger } from "../utils/logger";
+import { getBaseUrl } from "../utils/url";
 
 const MODELS_SEARCH_QUERY = "state=published&status=on&type=tts";
-
-/** Extract base URL (scheme + host) from a full URL. */
-function getBaseUrl(url: string): string {
-  const parsed = new URL(url);
-  return `${parsed.protocol}//${parsed.host}`;
-}
 
 interface ModelItem {
   id: string;

@@ -1,15 +1,8 @@
 import type { TtsConfig } from "../config/index";
+import { getBaseUrl } from "../utils/url";
 
 /** Cached token for prod environment. */
 let cachedToken: string | null = null;
-
-/**
- * Extract base URL (scheme + host) from a full URL.
- */
-function getBaseUrl(url: string): string {
-  const parsed = new URL(url);
-  return `${parsed.protocol}//${parsed.host}`;
-}
 
 /**
  * Login to prod environment and obtain X-Access-Token.
