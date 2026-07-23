@@ -5,6 +5,7 @@ import {
   sendZeroShotRequest,
   presign,
   uploadPromptVoice,
+  foldModelIds,
 } from "../services/tts-client";
 
 // --- Config tests ---
@@ -351,5 +352,38 @@ describe("uploadPromptVoice", () => {
     await expect(
       uploadPromptVoice(file, "test.mp3", config)
     ).rejects.toThrow("Upload failed with status 403");
+  });
+});
+
+describe("foldModelIds", () => {
+  it("folds Zh/Nan variants into MasterZhengyanKaishi and dedupes", () => {
+    const input = [
+      "MasterZhengyanKaishiZh",
+      "MasterZhengyanKaishiNan",
+      "MasterZhengyanFoJing",
+      "tts-general-1.3.3",
+    ];
+    expect(foldModelIds(input)).toEqual([
+      "MasterZhengyanKaishi",
+      "MasterZhengyanFoJing",
+      "tts-general-1.3.3",
+    ]);
+  });
+
+  it("keeps non-variant ids unchanged", () => {
+    expect(foldModelIds(["tts-general-1.3.3", "MasterZhengyanFoJing"])).toEqual([
+      "tts-general-1.3.3",
+      "MasterZhengyanFoJing",
+    ]);
+  });
+
+  it("returns empty array for empty input", () => {
+    expect(foldModelIds([])).toEqual([]);
+  });
+
+  it("folds a single variant with no sibling", () => {
+    expect(foldModelIds(["MasterZhengyanKaishiZh"])).toEqual([
+      "MasterZhengyanKaishi",
+    ]);
   });
 });
