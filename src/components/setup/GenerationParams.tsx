@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useProjectStore } from "../../stores/project-store.ts";
+import { useModels } from "../../hooks/useModels.ts";
 import type { SegmentMode } from "../../utils/preprocessing.ts";
-
-const MODEL_PRESETS = ["MasterZhengyanKaishi", "MasterZhengyanFoJing"];
 
 const SEGMENT_MODES: { value: SegmentMode; label: string; desc: string }[] = [
   { value: "raw", label: "Raw", desc: "No splitting" },
@@ -16,6 +15,7 @@ export function GenerationParams() {
 
   const [modelOpen, setModelOpen] = useState(false);
   const modelRef = useRef<HTMLDivElement>(null);
+  const { models, loading: modelsLoading, error: modelsError } = useModels();
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -42,8 +42,11 @@ export function GenerationParams() {
             onChange={(e) => updateConfig({ language: e.target.value })}
             className="bg-bg-primary text-text-primary text-sm rounded-md border border-border-input px-3 py-2.5 appearance-none cursor-pointer focus:outline-none focus:border-accent-primary"
           >
-            <option value="zh">國語 (zh)</option>
-            <option value="nan">臺語 (nan)</option>
+            <option value="zh">中文</option>
+            <option value="nan">臺語</option>
+            <option value="ja">日文 Beta</option>
+            <option value="en">英文 Beta</option>
+            <option value="ko">韓文 Beta</option>
           </select>
         </div>
 
@@ -73,22 +76,31 @@ export function GenerationParams() {
             </div>
             {modelOpen && (
               <ul className="absolute z-10 mt-1 w-full bg-bg-primary border border-border-input rounded-md shadow-lg max-h-48 overflow-auto">
-                {MODEL_PRESETS.map((id) => (
-                  <li
-                    key={id}
-                    onClick={() => {
-                      updateConfig({ modelId: id });
-                      setModelOpen(false);
-                    }}
-                    className={`px-3 py-2 text-sm font-mono cursor-pointer transition-colors ${
-                      config.modelId === id
-                        ? "bg-accent-primary/10 text-accent-primary"
-                        : "text-text-primary hover:bg-bg-tertiary"
-                    }`}
-                  >
-                    {id}
+                {modelsError && (
+                  <li className="px-3 py-2 text-xs text-status-error">
+                    無法載入 model 清單，使用預設
                   </li>
-                ))}
+                )}
+                {modelsLoading ? (
+                  <li className="px-3 py-2 text-sm text-text-muted">Loading models…</li>
+                ) : (
+                  models.map((id) => (
+                    <li
+                      key={id}
+                      onClick={() => {
+                        updateConfig({ modelId: id });
+                        setModelOpen(false);
+                      }}
+                      className={`px-3 py-2 text-sm font-mono cursor-pointer transition-colors ${
+                        config.modelId === id
+                          ? "bg-accent-primary/10 text-accent-primary"
+                          : "text-text-primary hover:bg-bg-tertiary"
+                      }`}
+                    >
+                      {id}
+                    </li>
+                  ))
+                )}
               </ul>
             )}
           </div>

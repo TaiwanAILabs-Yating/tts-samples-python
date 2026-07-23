@@ -5,6 +5,7 @@ import {
   sendZeroShotRequest,
   presign,
   uploadPromptVoice,
+  foldModelIds,
 } from "../services/tts-client";
 
 // --- Config tests ---
@@ -159,6 +160,40 @@ describe("sendZeroShotRequest", () => {
     );
     expect(body.input.text).toBe("<|nan|>你好");
   });
+
+  it.each([
+    { language: "zh", model: "MasterZhengyanKaishiZh" },
+    { language: "nan", model: "MasterZhengyanKaishiNan" },
+    { language: "ja", model: "MasterZhengyanKaishiZh" },
+    { language: "en", model: "MasterZhengyanKaishiZh" },
+    { language: "ko", model: "MasterZhengyanKaishiZh" },
+  ])(
+    "resolves model $model and keeps <|$language|> tag for language=$language",
+    async ({ language, model }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(new ArrayBuffer(0), { status: 200 })
+      );
+
+      const config = getConfig({ env: "dev" });
+      expect(config.modelId).toBe("MasterZhengyanKaishi");
+      await sendZeroShotRequest(
+        {
+          text: "你好",
+          promptVoiceText: "參考",
+          promptVoiceAssetKey: "",
+          promptVoiceUrl: "",
+          language,
+        },
+        config
+      );
+
+      const body = JSON.parse(
+        vi.mocked(fetch).mock.calls[0][1]!.body as string
+      );
+      expect(body.modelConfig.model).toBe(model);
+      expect(body.input.text).toBe(`<|${language}|>你好`);
+    }
+  );
 
   it("appends end silence token when specified", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
@@ -317,5 +352,38 @@ describe("uploadPromptVoice", () => {
     await expect(
       uploadPromptVoice(file, "test.mp3", config)
     ).rejects.toThrow("Upload failed with status 403");
+  });
+});
+
+describe("foldModelIds", () => {
+  it("folds Zh/Nan variants into MasterZhengyanKaishi and dedupes", () => {
+    const input = [
+      "MasterZhengyanKaishiZh",
+      "MasterZhengyanKaishiNan",
+      "MasterZhengyanFoJing",
+      "tts-general-1.3.3",
+    ];
+    expect(foldModelIds(input)).toEqual([
+      "MasterZhengyanKaishi",
+      "MasterZhengyanFoJing",
+      "tts-general-1.3.3",
+    ]);
+  });
+
+  it("keeps non-variant ids unchanged", () => {
+    expect(foldModelIds(["tts-general-1.3.3", "MasterZhengyanFoJing"])).toEqual([
+      "tts-general-1.3.3",
+      "MasterZhengyanFoJing",
+    ]);
+  });
+
+  it("returns empty array for empty input", () => {
+    expect(foldModelIds([])).toEqual([]);
+  });
+
+  it("folds a single variant with no sibling", () => {
+    expect(foldModelIds(["MasterZhengyanKaishiZh"])).toEqual([
+      "MasterZhengyanKaishi",
+    ]);
   });
 });
