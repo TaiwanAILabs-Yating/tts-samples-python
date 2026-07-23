@@ -51,7 +51,9 @@ export function getConfig(
     ...(envVars.VITE_UPLOAD_URL && {
       uploadUrl: envVars.VITE_UPLOAD_URL,
     }),
-    ...(envVars.VITE_MODEL_ID && { modelId: envVars.VITE_MODEL_ID }),
+    // modelId is not env-configurable: the UI (project store) always supplies
+    // config.modelId and overrides the default, so a VITE_MODEL_ID here would
+    // never be observed. Keep it out of fromEnv.
     ...(envVars.VITE_AUTH_KEY && { authKey: envVars.VITE_AUTH_KEY }),
     ...(envVars.VITE_AUTH_SECRET && {
       authSecret: envVars.VITE_AUTH_SECRET,
