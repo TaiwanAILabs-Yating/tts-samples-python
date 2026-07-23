@@ -4,12 +4,13 @@
 
 ## 需求
 
-新增兩個語言選項：
+新增三個語言選項：
 - `ja`（日文）
 - `en`（英文）
+- `ko`（韓文）
 
-兩者的 model 都**暫時共用** `MasterZhengyanKaishiZh`（尚無專屬 model）。
-文字語言標籤 `<|...|>` 仍使用實際選取的語言（`<|ja|>` / `<|en|>`），不改成 zh。
+三者的 model 都**暫時共用** `MasterZhengyanKaishiZh`（尚無專屬 model）。
+文字語言標籤 `<|...|>` 仍使用實際選取的語言（`<|ja|>` / `<|en|>` / `<|ko|>`），不改成 zh。
 
 ---
 
@@ -25,9 +26,10 @@
 | MasterZhengyanKaishi | nan | MasterZhengyanKaishiNan |
 | MasterZhengyanKaishi | ja | MasterZhengyanKaishiZh（暫時） |
 | MasterZhengyanKaishi | en | MasterZhengyanKaishiZh（暫時） |
+| MasterZhengyanKaishi | ko | MasterZhengyanKaishiZh（暫時） |
 | 其他 model | 任何 | 不變 |
 
-文字/prompt 前的語言標籤沿用既有邏輯（`<|${language}|>`），故 ja/en 會送出 `<|ja|>` / `<|en|>`，不因 model 共用而改變。
+文字/prompt 前的語言標籤沿用既有邏輯（`<|${language}|>`），故 ja/en/ko 會送出 `<|ja|>` / `<|en|>` / `<|ko|>`，不因 model 共用而改變。
 
 ### `src/components/setup/GenerationParams.tsx`
 

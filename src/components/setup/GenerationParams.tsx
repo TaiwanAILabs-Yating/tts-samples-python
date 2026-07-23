@@ -46,6 +46,7 @@ export function GenerationParams() {
             <option value="nan">臺語</option>
             <option value="ja">日文 Beta</option>
             <option value="en">英文 Beta</option>
+            <option value="ko">韓文 Beta</option>
           </select>
         </div>
 

@@ -165,6 +165,7 @@ describe("sendZeroShotRequest", () => {
     { language: "nan", model: "MasterZhengyanKaishiNan" },
     { language: "ja", model: "MasterZhengyanKaishiZh" },
     { language: "en", model: "MasterZhengyanKaishiZh" },
+    { language: "ko", model: "MasterZhengyanKaishiZh" },
   ])(
     "resolves model $model and keeps <|$language|> tag for language=$language",
     async ({ language, model }) => {
