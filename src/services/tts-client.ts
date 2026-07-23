@@ -19,6 +19,32 @@ function resolveModelId(modelId: string, language?: string): string {
   return modelId;
 }
 
+/** Model IDs that resolveModelId splits MasterZhengyanKaishi into. */
+const MODEL_VARIANT_SUFFIXES = ["Zh", "Nan"] as const;
+const FOLDABLE_BASE = "MasterZhengyanKaishi";
+
+/**
+ * Inverse of resolveModelId for display: fold MasterZhengyanKaishi{Zh,Nan}
+ * variants back into the abstract "MasterZhengyanKaishi" option, deduped and
+ * order-preserving. Other model IDs pass through unchanged.
+ */
+export function foldModelIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of ids) {
+    const folded = MODEL_VARIANT_SUFFIXES.some(
+      (suffix) => id === `${FOLDABLE_BASE}${suffix}`
+    )
+      ? FOLDABLE_BASE
+      : id;
+    if (!seen.has(folded)) {
+      seen.add(folded);
+      out.push(folded);
+    }
+  }
+  return out;
+}
+
 export interface ZeroShotRequest {
   text: string;
   promptVoiceText: string;
