@@ -284,5 +284,56 @@ class TestEdgeCases:
             assert count_tokens(seg) <= 80
 
 
+def test_count_tokens_hiragana():
+    assert count_tokens("こんにちは") == 5
+
+
+def test_count_tokens_katakana():
+    assert count_tokens("カタカナ") == 4
+    assert count_tokens("東京タワー") == 5  # 2 kanji + タ ワ ー
+
+
+def test_count_tokens_hangul():
+    assert count_tokens("안녕하세요") == 5
+
+
+def test_count_tokens_existing_behavior():
+    assert count_tokens("你好") == 2
+    assert count_tokens("hello") == 1
+    assert count_tokens("hello world") == 3
+    assert count_tokens("你好world") == 3
+
+
+def test_force_split_keeps_english_words_whole():
+    text = "the quick brown fox jumps over"
+    out = force_split_by_char(text, 3)
+    for w in ["the", "quick", "brown", "fox", "jumps", "over"]:
+        assert any(w in seg for seg in out)
+    assert "".join(out) == text
+
+
+def test_force_split_keeps_latin_run_whole_next_to_cjk():
+    out = force_split_by_char("你好helloworld你好", 3)
+    assert any("helloworld" in seg for seg in out)
+    assert "".join(out) == "你好helloworld你好"
+
+
+def test_force_split_bounds_pure_kana():
+    out = force_split_by_char("あいうえおかきくけこ", 3)
+    assert all(count_tokens(seg) <= 3 for seg in out)
+
+
+def test_split_sentences_balances_long_kana():
+    segs = split_sentences("あ" * 100, "sentence", 10, 40)
+    assert len(segs) > 1
+    assert all(count_tokens(s) <= 40 for s in segs)
+
+
+def test_split_sentences_balances_long_hangul():
+    segs = split_sentences("가" * 100, "sentence", 10, 40)
+    assert len(segs) > 1
+    assert all(count_tokens(s) <= 40 for s in segs)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

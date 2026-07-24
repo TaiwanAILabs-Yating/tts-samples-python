@@ -45,34 +45,29 @@ def strip_punctuation(text: str) -> str:
 def count_tokens(text: str) -> int:
     """
     Count tokens in text.
-    - Chinese character: 1 token
+    - Chinese / Japanese kanji & kana / Korean hangul: 1 token each
     - English word: 1.5 tokens (fixed average)
     """
-    chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
+    cjk_chars = len(re.findall(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", text))
     english_words = len(re.findall(r"[a-zA-Z]+", text))
-    return chinese_chars + int(english_words * 1.5)
+    return cjk_chars + int(english_words * 1.5)
 
 
 def force_split_by_char(text: str, max_tokens: int) -> List[str]:
     """
-    Force split text by character when no punctuation is available.
-
-    Args:
-        text: Text to split
-        max_tokens: Maximum tokens per segment
-
-    Returns:
-        List of segments, each <= max_tokens
+    Split text into <= max_tokens pieces without breaking English words.
+    A run of Latin letters is kept whole; every other char is its own atom.
+    A single atom exceeding max_tokens becomes its own (over-limit) segment.
     """
+    atoms = re.findall(r"[a-zA-Z]+|[\s\S]", text)
     result = []
     current = ""
-    for char in text:
-        if count_tokens(current + char) <= max_tokens:
-            current += char
+    for atom in atoms:
+        if current == "" or count_tokens(current + atom) <= max_tokens:
+            current += atom
         else:
-            if current:
-                result.append(current)
-            current = char
+            result.append(current)
+            current = atom
     if current:
         result.append(current)
     return result
@@ -162,23 +157,14 @@ def balance_segments(
     # Step 2: Greedy merge - only combine if won't exceed max_tokens
     result = []
     current = ""
-    current_tokens = 0
 
     for piece in atomic:
-        piece_tokens = count_tokens(piece)
-
-        if current_tokens + piece_tokens <= max_tokens:
-            # Can merge without exceeding max
+        if current == "" or count_tokens(current + piece) <= max_tokens:
             current += piece
-            current_tokens += piece_tokens
         else:
-            # Would exceed max, start new segment
-            if current:
-                result.append(current)
+            result.append(current)
             current = piece
-            current_tokens = piece_tokens
 
-    # Don't forget the last segment
     if current:
         result.append(current)
 
