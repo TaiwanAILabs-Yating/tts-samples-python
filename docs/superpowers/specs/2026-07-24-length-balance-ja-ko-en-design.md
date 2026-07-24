@@ -44,7 +44,7 @@ TTS 的長度控制（`maxTokens` 硬切、`minTokens` 軟合併）完全依賴 
 
 ```ts
 export function countTokens(text: string): number {
-  const cjkChars = (text.match(/[一-鿿぀-ヿ가-힯]/g) || []).length;
+  const cjkChars = (text.match(/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/g) || []).length;
   const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
   return cjkChars + Math.floor(englishWords * 1.5);
 }
@@ -54,7 +54,7 @@ export function countTokens(text: string): number {
 
 ```python
 def count_tokens(text: str) -> int:
-    cjk_chars = len(re.findall(r"[一-鿿぀-ヿ가-힯]", text))
+    cjk_chars = len(re.findall(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", text))
     english_words = len(re.findall(r"[a-zA-Z]+", text))
     return cjk_chars + int(english_words * 1.5)
 ```
