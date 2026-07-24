@@ -229,6 +229,12 @@ describe("stripPunctuation", () => {
     expect(stripPunctuation("你好？")).toBe("你好？");
   });
 
+  it("strips leading/trailing double quotes", () => {
+    expect(stripPunctuation('"你好"')).toBe("你好");
+    expect(stripPunctuation("“你好”")).toBe("你好");
+    expect(stripPunctuation('"hello"')).toBe("hello");
+  });
+
   it("handles both leading and trailing correctly", () => {
     expect(stripPunctuation("，你好。")).toBe("你好");
     expect(stripPunctuation("、世界！")).toBe("世界！");
@@ -387,5 +393,66 @@ describe("constants", () => {
 
   it("MAX_PROJECTS is 5", () => {
     expect(MAX_PROJECTS).toBe(5);
+  });
+});
+
+describe("countTokens - CJK kana/hangul", () => {
+  it("counts hiragana as 1 token each", () => {
+    expect(countTokens("こんにちは")).toBe(5);
+  });
+  it("counts katakana (incl. long mark) as 1 token each", () => {
+    expect(countTokens("カタカナ")).toBe(4);
+    expect(countTokens("東京タワー")).toBe(5); // 2 kanji + タ ワ ー
+  });
+  it("counts hangul syllables as 1 token each", () => {
+    expect(countTokens("안녕하세요")).toBe(5);
+  });
+  it("keeps existing Chinese/English behavior", () => {
+    expect(countTokens("你好")).toBe(2);
+    expect(countTokens("hello")).toBe(1);
+    expect(countTokens("hello world")).toBe(3);
+    expect(countTokens("你好world")).toBe(3);
+  });
+});
+
+describe("forceSplitByChar - word safety", () => {
+  it("never splits an English word across segments", () => {
+    const text = "the quick brown fox jumps over";
+    const out = forceSplitByChar(text, 3);
+    for (const w of ["the", "quick", "brown", "fox", "jumps", "over"]) {
+      expect(out.some((s) => s.includes(w))).toBe(true);
+    }
+    expect(out.join("")).toBe(text);
+  });
+  it("keeps a run of Latin letters whole even adjacent to CJK", () => {
+    const out = forceSplitByChar("你好helloworld你好", 3);
+    expect(out.some((s) => s.includes("helloworld"))).toBe(true);
+    expect(out.join("")).toBe("你好helloworld你好");
+  });
+  it("still bounds pure CJK/kana segments by maxTokens", () => {
+    const out = forceSplitByChar("あいうえおかきくけこ", 3);
+    expect(out.every((s) => countTokens(s) <= 3)).toBe(true);
+  });
+});
+
+describe("balanceSegments - English merge stays within maxTokens (change 3)", () => {
+  it("does not let additive undercount push an English segment over maxTokens", () => {
+    // Each "xx " piece is 1 token alone; two joined are floor(2*1.5)=3 tokens.
+    // Old additive sum (1+1=2) would merge them under maxTokens=2 and overflow.
+    const out = balanceSegments(["aa ", "bb ", "cc ", "dd "], 1, 2);
+    expect(out.every((s) => countTokens(s) <= 2)).toBe(true);
+  });
+});
+
+describe("splitSentences - ja/ko length balance", () => {
+  it("splits long kana text by maxTokens in sentence mode", () => {
+    const segs = splitSentences("あ".repeat(100), "sentence", 10, 40);
+    expect(segs.length).toBeGreaterThan(1);
+    expect(segs.every((s) => countTokens(s) <= 40)).toBe(true);
+  });
+  it("splits long hangul text by maxTokens in sentence mode", () => {
+    const segs = splitSentences("가".repeat(100), "sentence", 10, 40);
+    expect(segs.length).toBeGreaterThan(1);
+    expect(segs.every((s) => countTokens(s) <= 40)).toBe(true);
   });
 });
