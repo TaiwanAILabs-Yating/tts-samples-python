@@ -49,7 +49,7 @@ export function forceSplitByChar(
   maxTokens: number
 ): string[] {
   // Atoms: a run of Latin letters stays whole; every other char is its own atom.
-  const atoms = text.match(/[a-zA-Z]+|[\s\S]/g) || [];
+  const atoms = text.match(/[a-zA-Z]+|[\s\S]/gu) || [];
   const result: string[] = [];
   let current = "";
   for (const atom of atoms) {

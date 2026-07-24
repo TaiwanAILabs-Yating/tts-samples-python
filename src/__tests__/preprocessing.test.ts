@@ -429,6 +429,15 @@ describe("forceSplitByChar - word safety", () => {
   });
 });
 
+describe("balanceSegments - English merge stays within maxTokens (change 3)", () => {
+  it("does not let additive undercount push an English segment over maxTokens", () => {
+    // Each "xx " piece is 1 token alone; two joined are floor(2*1.5)=3 tokens.
+    // Old additive sum (1+1=2) would merge them under maxTokens=2 and overflow.
+    const out = balanceSegments(["aa ", "bb ", "cc ", "dd "], 1, 2);
+    expect(out.every((s) => countTokens(s) <= 2)).toBe(true);
+  });
+});
+
 describe("splitSentences - ja/ko length balance", () => {
   it("splits long kana text by maxTokens in sentence mode", () => {
     const segs = splitSentences("あ".repeat(100), "sentence", 10, 40);

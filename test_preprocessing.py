@@ -335,5 +335,12 @@ def test_split_sentences_balances_long_hangul():
     assert all(count_tokens(s) <= 40 for s in segs)
 
 
+def test_balance_segments_english_within_max_tokens():
+    # Each "xx " piece is 1 token alone; two joined are int(2*1.5)=3 tokens.
+    # Old additive sum (1+1=2) would merge them under max_tokens=2 and overflow.
+    out = balance_segments(["aa ", "bb ", "cc ", "dd "], 1, 2)
+    assert all(count_tokens(s) <= 2 for s in out)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
