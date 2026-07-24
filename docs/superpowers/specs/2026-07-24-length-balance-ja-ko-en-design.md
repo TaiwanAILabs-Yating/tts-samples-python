@@ -8,9 +8,10 @@
 TTS 的長度控制（`maxTokens` 硬切、`minTokens` 軟合併）完全依賴 `countTokens`，而它只計中文漢字（`一-鿿`，1 token）與英文單字（`floor(字數×1.5)`）：
 
 - **日文假名**（平假名 `぀-ゟ`、片假名 `゠-ヿ`）與 **韓文諺文**（`가-힯`）一律算 **0 token** → 假名/諺文多的文本 token 近 0，永遠不會被 `maxTokens` 切分、也不觸發 `minTokens` 合併，等於沒有長度保證。
-- 強制分段 `forceSplitByChar` 逐字切，會把**英文單字切在中間**。
 
 新增的 ja/en/ko（Beta）因此缺乏與 zh/nan 同等的長度平衡。
+
+> **關於英文不切斷單字**：經實測，現況 `forceSplitByChar` 逐字切時**已不會**切斷英文單字 —— 因為 token 以「單字」計，一個單字不論多長只算 1 token，逐字累加時 token 只在「新單字開始」跳升，flush 必落在單字邊界。此需求現況已滿足；本次改動 2 只是把它變成**程式碼明確保證**（word-atom），不再依賴 token 計數的隱性特性。
 
 兩份實作互為鏡像，需同步修改：
 - 前端：`src/utils/preprocessing.ts`（Web UI）
@@ -61,9 +62,11 @@ def count_tokens(text: str) -> int:
 - `぀-ヿ` 涵蓋平假名 + 片假名（含長音符 `ー`）；`가-힯` 涵蓋諺文音節。
 - 中文/英文既有行為不變。
 
-### 改動 2：強制分段不切斷英文單字
+### 改動 2：強制分段以 word-atom 明確保證不切斷英文單字（防禦性）
 
-把逐字迭代改為以「原子」為單位：**一串連續英文字母 `[a-zA-Z]+` 為一個原子；其餘每字一個原子**。貪婪打包，且當 `current` 為空時無條件納入下一個原子（確保超長單字自成一段、允許超限）。
+> 現況已不會切斷單字（見背景）；本改動把它變成不依賴隱性特性的明確保證。
+
+把逐字迭代改為以「原子」為單位：**一串連續英文字母 `[a-zA-Z]+` 為一個原子；其餘每字一個原子**。貪婪打包，且當 `current` 為空時無條件納入下一個原子（單一原子超過 maxTokens 時自成一段、允許超限 —— 此為防禦性分支；現行 token 權重下英文單字恆為 1 token，不會觸發）。
 
 **TS** `forceSplitByChar`（`src/utils/preprocessing.ts:45-66`，保留函式名與 export）：
 
@@ -152,9 +155,10 @@ for (const piece of atomic) {
 - 既有：`你好` → 2、`hello` → 1、`hello world` → 3、`你好world` → 3 維持不變。
 
 **forceSplitByChar / force_split_by_char**
-- 英文長句在 maxTokens 下，**任一輸出段落不得包含被切斷的單字**（每個 `[a-zA-Z]+` run 完整存在於某一段）。
-- 單一超長單字（如 40+ 字母）於小 maxTokens 下 → 自成一段且**允許超過 maxTokens**（不硬切）。
-- 純 CJK/假名字串 → 仍每段 ≤ maxTokens。
+- 英文長句（含空格）在小 maxTokens 下：每個單字完整存在於某一段（`out.some(seg => seg.includes(word))` 對每個單字成立），且 `out.join("")` 還原原字串。
+- 純 CJK/假名字串 → 仍每段 ≤ maxTokens（逐字切行為不變）。
+- 混合（CJK 緊接英文，無空格，如 `你好helloworld你好`）→ `helloworld` 完整保留於某一段。
+- （不測「單一超長英文單字超過 maxTokens」：現行權重下英文單字恆為 1 token，此情境不可重現；`current === ""` 僅為防禦性分支。）
 
 **balanceSegments / splitSentences**
 - 日文/韓文長文（純假名/諺文）在 `sentence` 模式下會被 `maxTokens` 切分（不再整段爆長）。
