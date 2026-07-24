@@ -202,6 +202,12 @@ class TestStripPunctuation:
         assert strip_punctuation("你好！") == "你好！"
         assert strip_punctuation("你好？") == "你好？"
 
+    def test_strips_double_quotes(self):
+        """Leading/trailing double quotes (straight and curly) are removed."""
+        assert strip_punctuation('"你好"') == "你好"
+        assert strip_punctuation("“你好”") == "你好"
+        assert strip_punctuation('"hello"') == "hello"
+
     def test_combined(self):
         """Both leading and trailing are handled correctly."""
         assert strip_punctuation("，你好。") == "你好"

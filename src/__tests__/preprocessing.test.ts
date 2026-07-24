@@ -229,6 +229,12 @@ describe("stripPunctuation", () => {
     expect(stripPunctuation("你好？")).toBe("你好？");
   });
 
+  it("strips leading/trailing double quotes", () => {
+    expect(stripPunctuation('"你好"')).toBe("你好");
+    expect(stripPunctuation("“你好”")).toBe("你好");
+    expect(stripPunctuation('"hello"')).toBe("hello");
+  });
+
   it("handles both leading and trailing correctly", () => {
     expect(stripPunctuation("，你好。")).toBe("你好");
     expect(stripPunctuation("、世界！")).toBe("世界！");

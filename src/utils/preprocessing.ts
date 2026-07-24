@@ -11,10 +11,10 @@ export type SegmentMode =
 // Punctuation patterns for stripping
 // Leading: remove all punctuation from start
 const LEADING_PUNCTUATION =
-  /^[。.？?！!，,、；;：:「」『』（）()\[\]【】\s]+/;
+  /^[。.？?！!，,、；;：:「」『』（）()\[\]【】"“”\s]+/;
 // Trailing: remove punctuation including period (keep ！？)
 const TRAILING_PUNCTUATION =
-  /[。.，,、；;：:「」『』（）()\[\]【】\s]+$/;
+  /[。.，,、；;：:「」『』（）()\[\]【】"“”\s]+$/;
 
 /**
  * Strip punctuation from text edges.

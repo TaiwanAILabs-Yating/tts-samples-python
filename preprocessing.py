@@ -25,9 +25,9 @@ SEGMENT_MODE_CLAUSE = "clause"  # Split on sentence + clause endings: 。.？！
 
 # Punctuation patterns for stripping
 # Leading: remove all punctuation from start
-LEADING_PUNCTUATION = r"^[。.？?！!，,、；;：:「」『』（）()\[\]【】\s]+"
+LEADING_PUNCTUATION = r'^[。.？?！!，,、；;：:「」『』（）()\[\]【】"“”\s]+'
 # Trailing: remove punctuation including period (keep ！？)
-TRAILING_PUNCTUATION = r"[。.，,、；;：:「」『』（）()\[\]【】\s]+$"
+TRAILING_PUNCTUATION = r'[。.，,、；;：:「」『』（）()\[\]【】"“”\s]+$'
 
 
 def strip_punctuation(text: str) -> str:
