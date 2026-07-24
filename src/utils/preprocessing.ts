@@ -29,34 +29,35 @@ export function stripPunctuation(text: string): string {
 
 /**
  * Count tokens in text.
- * - Chinese character: 1 token
+ * - Chinese character, Japanese (kanji/kana), Korean (hangul): 1 token each
  * - English word: 1.5 tokens (fixed average)
  */
 export function countTokens(text: string): number {
-  const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  const cjkChars = (text.match(/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/g) || []).length;
   const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
-  return chineseChars + Math.floor(englishWords * 1.5);
+  return cjkChars + Math.floor(englishWords * 1.5);
 }
 
 /**
  * Force split text by character when no punctuation is available.
  * Each segment is guaranteed <= maxTokens.
+ * Never splits an English word across segments; treats runs of Latin letters as atomic units.
+ * When a single atom exceeds maxTokens, it becomes its own segment (defensive fallback).
  */
 export function forceSplitByChar(
   text: string,
   maxTokens: number
 ): string[] {
+  // Atoms: a run of Latin letters stays whole; every other char is its own atom.
+  const atoms = text.match(/[a-zA-Z]+|[\s\S]/g) || [];
   const result: string[] = [];
   let current = "";
-
-  for (const char of text) {
-    if (countTokens(current + char) <= maxTokens) {
-      current += char;
+  for (const atom of atoms) {
+    if (current === "" || countTokens(current + atom) <= maxTokens) {
+      current += atom;
     } else {
-      if (current) {
-        result.push(current);
-      }
-      current = char;
+      result.push(current);
+      current = atom;
     }
   }
   if (current) {
@@ -147,20 +148,13 @@ export function balanceSegments(
   // Step 2: Greedy merge - only combine if won't exceed maxTokens
   const result: string[] = [];
   let current = "";
-  let currentTokens = 0;
 
   for (const piece of atomic) {
-    const pieceTokens = countTokens(piece);
-
-    if (currentTokens + pieceTokens <= maxTokens) {
+    if (current === "" || countTokens(current + piece) <= maxTokens) {
       current += piece;
-      currentTokens += pieceTokens;
     } else {
-      if (current) {
-        result.push(current);
-      }
+      result.push(current);
       current = piece;
-      currentTokens = pieceTokens;
     }
   }
 
