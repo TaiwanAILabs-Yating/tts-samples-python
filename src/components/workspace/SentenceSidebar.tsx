@@ -24,6 +24,7 @@ interface SentenceSidebarProps {
   progress: GenerationProgress | null;
   onGenerateAll: () => void;
   onApproveAll: () => void;
+  onOpenBatchReplace: () => void;
 }
 
 export function SentenceSidebar({
@@ -31,6 +32,7 @@ export function SentenceSidebar({
   progress,
   onGenerateAll,
   onApproveAll,
+  onOpenBatchReplace,
 }: SentenceSidebarProps) {
   const navigate = useNavigate();
   const sentences = useProjectStore((s) => s.sentences);
@@ -350,6 +352,18 @@ export function SentenceSidebar({
             className="flex-1 flex items-center justify-center text-[13px] font-medium text-text-secondary rounded-md py-1.5 border border-border-secondary hover:bg-bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Approve All
+          </button>
+          <button
+            onClick={onOpenBatchReplace}
+            disabled={isGenerating}
+            title="批次取代字詞"
+            aria-label="批次取代字詞"
+            className="shrink-0 flex items-center justify-center w-8 text-text-secondary rounded-md border border-border-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 4a2 2 0 0 1 2-2" /><path d="M16 10a2 2 0 0 1-2-2" /><path d="M20 2a2 2 0 0 1 2 2" /><path d="M22 8a2 2 0 0 1-2 2" />
+              <path d="m3 7 3 3 3-3" /><path d="M6 10V5a3 3 0 0 1 3-3h1" /><rect x="2" y="14" width="8" height="8" rx="2" />
+            </svg>
           </button>
         </div>
         {/* Filter row */}

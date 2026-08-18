@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { PipelineState, SegmentState, WordSegState } from "../services/tts-orchestrator";
+import type { SegmentTextEdit } from "../utils/batch-replace";
 import type { SegmentMode } from "../utils/preprocessing";
 import { MAX_PROJECTS } from "../utils/preprocessing";
 import type { FadeCurve } from "../services/ffmpeg-service";
@@ -96,6 +97,13 @@ interface ProjectStore {
   // Segment-level update
   updateSegmentText: (sentenceIndex: number, segmentIndex: number, text: string) => void;
   updateSegmentWordSeg: (sentenceIndex: number, segmentIndex: number, wordSeg: WordSegState[]) => void;
+  /**
+   * Batch text edits across sentences (Batch Find & Replace).
+   * Only touches `segment.text`; wordSegmentation / audio are left as-is.
+   * Affected sentences get `text` rebuilt from segments and, if approved,
+   * are reverted to "generated" since the old review no longer applies.
+   */
+  applyBatchReplace: (edits: SegmentTextEdit[]) => void;
 
   // Selection
   selectedSentenceIndex: number;
@@ -219,6 +227,37 @@ export const useProjectStore = create<ProjectStore>()(persist((set, get) => ({
         return { ...s, pipeline: { ...s.pipeline, segments: newSegments } };
       }),
     })),
+
+  applyBatchReplace: (edits) => {
+    if (edits.length === 0) return;
+    const bySentence = new Map<number, SegmentTextEdit[]>();
+    for (const e of edits) {
+      const list = bySentence.get(e.sentenceIndex) ?? [];
+      list.push(e);
+      bySentence.set(e.sentenceIndex, list);
+    }
+    set((state) => ({
+      sentences: state.sentences.map((s, i) => {
+        const list = bySentence.get(i);
+        if (!list || !s.pipeline) return s;
+        const newSegments = [...s.pipeline.segments];
+        let changed = false;
+        for (const e of list) {
+          const seg = newSegments[e.segmentIndex];
+          if (!seg) continue;
+          newSegments[e.segmentIndex] = { ...seg, text: e.text };
+          changed = true;
+        }
+        if (!changed) return s;
+        return {
+          ...s,
+          text: newSegments.map((seg) => seg.text).join(""),
+          status: s.status === "approved" ? "generated" : s.status,
+          pipeline: { ...s.pipeline, segments: newSegments },
+        };
+      }),
+    }));
+  },
 
   selectedSentenceIndex: 0,
   setSelectedSentenceIndex: (selectedSentenceIndex) =>
