@@ -5,6 +5,10 @@ import { WorkspaceHeader } from "../components/workspace/WorkspaceHeader.tsx";
 import { WaveformPlayer, type WaveformPlayerHandle } from "../components/workspace/WaveformPlayer.tsx";
 import { SegmentCards } from "../components/workspace/SegmentCards.tsx";
 import { BottomActions } from "../components/workspace/BottomActions.tsx";
+import {
+  BatchReplaceDialog,
+  type BatchReplaceApplyOptions,
+} from "../components/workspace/BatchReplaceDialog.tsx";
 import { useProjectStore, type SentenceState } from "../stores/project-store.ts";
 import { useGeneration } from "../hooks/useGeneration.ts";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts.ts";
@@ -37,10 +41,28 @@ export function WorkspacePage() {
     handleApproveAll,
     handleRegenerateSentence,
     handleRegenerateSegment,
+    handleRegenerateSegments,
   } = useGeneration();
 
   const waveformRef = useRef<WaveformPlayerHandle>(null);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(-1);
+
+  // Batch find & replace
+  const [isBatchReplaceOpen, setBatchReplaceOpen] = useState(false);
+  const applyBatchReplace = useProjectStore((s) => s.applyBatchReplace);
+  const handleBatchReplaceApply = useCallback(
+    ({ edits, regenerate }: BatchReplaceApplyOptions) => {
+      applyBatchReplace(edits);
+      setBatchReplaceOpen(false);
+      if (regenerate) {
+        // Fire-and-forget: progress surfaces through per-segment status in the store.
+        handleRegenerateSegments(
+          edits.map(({ sentenceIndex, segmentIndex }) => ({ sentenceIndex, segmentIndex })),
+        ).catch((err) => console.error("[workspace] batch regenerate failed:", err));
+      }
+    },
+    [applyBatchReplace, handleRegenerateSegments],
+  );
 
   // Keyboard shortcut callbacks
   const handlePrevSentence = useCallback(() => {
@@ -158,6 +180,12 @@ export function WorkspacePage() {
           progress={progress}
           onGenerateAll={handleGenerateAll}
           onApproveAll={handleApproveAll}
+          onOpenBatchReplace={() => setBatchReplaceOpen(true)}
+        />
+        <BatchReplaceDialog
+          open={isBatchReplaceOpen}
+          onClose={() => setBatchReplaceOpen(false)}
+          onApply={handleBatchReplaceApply}
         />
 
         {/* Main Workspace */}

@@ -221,9 +221,12 @@ export function useGeneration() {
     [isGenerating, sentences, config, updateSentence]
   );
 
-  const handleRegenerateSegment = useCallback(
+  /**
+   * Core per-segment regeneration (no isGenerating guard). Shared by the
+   * single-segment button and batch flows so state bookkeeping stays in one place.
+   */
+  const regenerateOneSegment = useCallback(
     async (sentenceIndex: number, segmentIndex: number) => {
-      if (isGenerating) return;
       const sentence = useProjectStore.getState().sentences[sentenceIndex];
       if (!sentence?.pipeline) return;
 
@@ -284,7 +287,41 @@ export function useGeneration() {
       });
       setRegeneratingSegmentKey(null);
     },
-    [isGenerating, config, updateSentence]
+    [config, updateSentence]
+  );
+
+  const handleRegenerateSegment = useCallback(
+    async (sentenceIndex: number, segmentIndex: number) => {
+      if (isGenerating) return;
+      await regenerateOneSegment(sentenceIndex, segmentIndex);
+    },
+    [isGenerating, regenerateOneSegment]
+  );
+
+  /**
+   * Regenerate a list of segments sequentially (used by Batch Find & Replace).
+   * Segments whose sentence has never been generated (no promptVoiceAssetKey)
+   * are skipped — they are still "pending" and will be picked up by
+   * Regenerate All. Returns the number of segments actually regenerated.
+   */
+  const handleRegenerateSegments = useCallback(
+    async (targets: { sentenceIndex: number; segmentIndex: number }[]): Promise<number> => {
+      if (isGenerating) return 0;
+      let done = 0;
+      for (const { sentenceIndex, segmentIndex } of targets) {
+        const sentence = useProjectStore.getState().sentences[sentenceIndex];
+        if (!sentence?.pipeline?.promptVoiceAssetKey) {
+          logger.generation.info(
+            `Batch regenerate: skip sentence ${sentenceIndex} seg ${segmentIndex} (never generated)`,
+          );
+          continue;
+        }
+        await regenerateOneSegment(sentenceIndex, segmentIndex);
+        done++;
+      }
+      return done;
+    },
+    [isGenerating, regenerateOneSegment]
   );
 
 
@@ -352,5 +389,6 @@ export function useGeneration() {
     handleConcatOnly,
     handleRegenerateSentence,
     handleRegenerateSegment,
+    handleRegenerateSegments,
   };
 }
