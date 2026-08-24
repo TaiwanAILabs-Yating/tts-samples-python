@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { PipelineState, SegmentState, WordSegState } from "../services/tts-orchestrator";
 import type { SegmentTextEdit } from "../utils/batch-replace";
+import { replaceInSentenceText } from "../utils/sentence-text";
 import type { SegmentMode } from "../utils/preprocessing";
 import { MAX_PROJECTS } from "../utils/preprocessing";
 import type { FadeCurve } from "../services/ffmpeg-service";
@@ -100,10 +101,10 @@ interface ProjectStore {
   /**
    * Batch text edits across sentences (Batch Find & Replace).
    * Only touches `segment.text`; wordSegmentation / audio are left as-is.
-   * Affected sentences get `text` rebuilt from segments and, if approved,
-   * are reverted to "generated" since the old review no longer applies.
+   * `sentence.text`（使用者原始文字，含標點）只在被選取 segment 的對應
+   * span 內做 find→replace，標點不會遺失；approved 句子退回 "generated"。
    */
-  applyBatchReplace: (edits: SegmentTextEdit[]) => void;
+  applyBatchReplace: (edits: SegmentTextEdit[], find: string, replaceWith: string) => void;
 
   // Selection
   selectedSentenceIndex: number;
@@ -228,7 +229,7 @@ export const useProjectStore = create<ProjectStore>()(persist((set, get) => ({
       }),
     })),
 
-  applyBatchReplace: (edits) => {
+  applyBatchReplace: (edits, find, replaceWith) => {
     if (edits.length === 0) return;
     const bySentence = new Map<number, SegmentTextEdit[]>();
     for (const e of edits) {
@@ -240,18 +241,19 @@ export const useProjectStore = create<ProjectStore>()(persist((set, get) => ({
       sentences: state.sentences.map((s, i) => {
         const list = bySentence.get(i);
         if (!list || !s.pipeline) return s;
+        const oldSegmentTexts = s.pipeline.segments.map((seg) => seg.text);
         const newSegments = [...s.pipeline.segments];
-        let changed = false;
+        const selectedIndices = new Set<number>();
         for (const e of list) {
           const seg = newSegments[e.segmentIndex];
           if (!seg) continue;
           newSegments[e.segmentIndex] = { ...seg, text: e.text };
-          changed = true;
+          selectedIndices.add(e.segmentIndex);
         }
-        if (!changed) return s;
+        if (selectedIndices.size === 0) return s;
         return {
           ...s,
-          text: newSegments.map((seg) => seg.text).join(""),
+          text: replaceInSentenceText(s.text, oldSegmentTexts, selectedIndices, find, replaceWith),
           status: s.status === "approved" ? "generated" : s.status,
           pipeline: { ...s.pipeline, segments: newSegments },
         };
