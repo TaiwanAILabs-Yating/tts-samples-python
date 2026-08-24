@@ -71,6 +71,7 @@ export const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerPro
   function WaveformPlayer({ onCurrentSegmentChange }, ref) {
   const sentences = useProjectStore((s) => s.sentences);
   const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
+  const crossfadeDuration = useProjectStore((s) => s.config.crossfadeDuration);
   const sentence = sentences[selectedIndex];
   const pipeline = sentence?.pipeline;
 
@@ -87,22 +88,31 @@ export const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerPro
 
   const player = useAudioPlayer();
 
-  // Compute segment ranges from pipeline data
+  // Compute segment ranges from pipeline data.
+  // Uses the post-trim duration when silence removal ran at concat time
+  // (trimmedDuration), and accounts for the crossfade overlap between
+  // consecutive audible segments so boundaries line up with the merged audio.
   const segmentRanges: SegmentRange[] = useMemo(() => {
     if (!pipeline?.segments) return [];
+    const xfade = crossfadeDuration ?? 0.05;
     const ranges: SegmentRange[] = [];
     let offset = 0;
+    let joints = 0;
     for (const seg of pipeline.segments) {
-      const dur = seg.duration ?? 0;
+      const dur = seg.trimmedDuration ?? seg.duration ?? 0;
+      const start = joints > 0 && dur > 0 ? Math.max(0, offset - xfade) : offset;
       ranges.push({
-        startTime: offset,
-        endTime: offset + dur,
+        startTime: start,
+        endTime: start + dur,
         text: seg.text,
       });
-      offset += dur;
+      if (dur > 0) {
+        offset = start + dur;
+        joints++;
+      }
     }
     return ranges;
-  }, [pipeline?.segments]);
+  }, [pipeline?.segments, crossfadeDuration]);
 
   // Report current segment index to parent
   const prevSegIdxRef = useRef(-1);

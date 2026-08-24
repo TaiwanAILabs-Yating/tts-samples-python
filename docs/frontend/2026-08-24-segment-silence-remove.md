@@ -106,8 +106,10 @@ UI 只曝露開關；門檻與保留長度為程式常數，不進 ProjectConfig
 - **全靜音 segment**：silenceremove 後輸出可能只剩保留長度；若使用者把
   保留長度設 0，輸出可能為空 → acrossfade 失敗。UI 以 min 提示緩解；
   concat 失敗時錯誤會落在既有的 per-sentence error 處理
-- **時長顯示**：segment card 顯示的 duration 來自原始音檔，合併後總長會
-  比 Σsegments 更短（本來 crossfade 就會重疊，此為既有行為的延伸）
+- **時長顯示**：segment card 顯示的 duration 維持原始音檔長度；
+  WaveformPlayer 的 segment 時間軸則使用 `SegmentState.trimmedDuration`
+  （concat 時以 JS RMS 掃描估算的修剪後長度，與 FFmpeg 實際輸出 parity
+  驗證一致）並扣除 crossfade 重疊，避免時間軸與合併音檔錯位
 - ffmpeg.wasm core 0.12.6（FFmpeg 5.x）支援 `silenceremove` 的
   start/stop 參數組，無版本問題
 

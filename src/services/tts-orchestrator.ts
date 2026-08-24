@@ -2,8 +2,13 @@ import type { TtsConfig } from "../config/index";
 import type { ConcatProgress, FadeCurve } from "./ffmpeg-service";
 import type { ZeroShotRequest } from "./tts-client";
 import { sendZeroShotRequest, uploadPromptVoice } from "./tts-client";
-import { concatWavsWithCrossfade, padAudioWithSilence } from "./ffmpeg-service";
-import { getWavDuration } from "../utils/audio";
+import {
+  concatWavsWithCrossfade,
+  padAudioWithSilence,
+  TRIM_SILENCE_THRESHOLD_DB,
+  TRIM_SILENCE_KEEP_SEC,
+} from "./ffmpeg-service";
+import { getWavDuration, estimateTrimmedWavDuration } from "../utils/audio";
 import { generateWithRetry, generateBatch } from "./batch-generator";
 import { logger } from "../utils/logger";
 
@@ -31,6 +36,12 @@ export interface SegmentState {
   status: SegmentStatus;
   audio?: ArrayBuffer;
   duration?: number;
+  /**
+   * Effective duration inside the concatenated audio after silenceremove
+   * head/tail trimming. Set at concat time when trimSilence is on; undefined
+   * when trimming is off. Display-only (WaveformPlayer segment timeline).
+   */
+  trimmedDuration?: number;
   error?: string;
   attempts: number;
   history: HistoryEntry[];
@@ -144,6 +155,18 @@ async function recombineOutputs(
   }
 
   const audios = successSegments.map((s) => s.audio!);
+
+  // Keep the display timeline in sync with what the filter actually removes:
+  // record each segment's post-trim duration (or clear it when trimming is off).
+  for (const seg of successSegments) {
+    seg.trimmedDuration = trimSilence
+      ? estimateTrimmedWavDuration(
+          seg.audio!,
+          TRIM_SILENCE_THRESHOLD_DB,
+          TRIM_SILENCE_KEEP_SEC,
+        )
+      : undefined;
+  }
 
   let concatenatedAudio: ArrayBuffer;
   try {
