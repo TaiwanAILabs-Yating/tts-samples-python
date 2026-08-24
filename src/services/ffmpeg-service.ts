@@ -198,9 +198,15 @@ export function buildConcatFilterComplex(
   };
 
   if (trim) {
-    const sr =
-      `silenceremove=start_periods=1:start_threshold=${trim.thresholdDb}dB:start_silence=${trim.keepSec}:` +
-      `stop_periods=1:stop_threshold=${trim.thresholdDb}dB:stop_silence=${trim.keepSec}:detection=rms`;
+    // Head trim: skip leading silence, keep `keepSec` of it.
+    // Tail trim: areverse + head-trim + areverse. Positive stop_periods must
+    // NOT be used — it stops copying at the FIRST silence period (with
+    // stop_duration defaulting to 0), so any mid-segment pause would truncate
+    // everything after it (segments audibly vanished from merged audio).
+    const head =
+      `silenceremove=start_periods=1:start_threshold=${trim.thresholdDb}dB:` +
+      `start_silence=${trim.keepSec}:detection=rms`;
+    const sr = `${head},areverse,${head},areverse`;
     for (let i = 0; i < n; i++) {
       filters.push(`[${i}]${sr}[s${i}]`);
     }

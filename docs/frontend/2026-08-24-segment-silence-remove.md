@@ -18,16 +18,18 @@ TTS 生成的 segment 音檔頭尾常帶有長短不一的靜音，acrossfade �
 再進 acrossfade 串鏈：
 
 ```
-[0]silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.1:
-   stop_periods=1:stop_threshold=-50dB:stop_silence=0.1:detection=rms[s0];
-[1]silenceremove=...[s1];
+[0]silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.1:detection=rms,
+   areverse,silenceremove=...(同上),areverse[s0];
+[1]silenceremove=...,areverse,silenceremove=...,areverse[s1];
 [s0][s1]acrossfade=d=0.05:c1=hsin:c2=hsin[a0];
 [a0][s2]acrossfade=...
 ```
 
-- `start_periods=1` / `stop_periods=1`：各修剪一次頭部 / 尾部靜音
-- `start_silence` / `stop_silence`（= 保留靜音長度）：修剪後仍保留一小段，
-  避免語音被切得太貼、也保證 acrossfade 有材料可疊
+- 頭部：`start_periods=1` 跳過開頭靜音，`start_silence` 保留一小段
+- 尾部：`areverse` + 頭部修剪 + `areverse`（反轉後修頭 = 修尾）
+- **切勿使用正值 `stop_periods`**：其語意是「偵測到第一段靜音就停止複製」
+  （`stop_duration` 預設 0），任何句中停頓都會讓後面整段被截斷 —
+  v1 曾因此造成合併後 segment 消失，已修正並加測試防回歸
 - `detection=rms`：對 TTS 底噪較穩定
 
 **只套用在「原始 segment」層級**：

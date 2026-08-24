@@ -257,14 +257,25 @@ describe("buildConcatFilterComplex", () => {
     );
   });
 
-  it("prepends per-input silenceremove when trim is enabled (2 inputs)", () => {
+  it("prepends per-input head+tail silenceremove when trim is enabled (2 inputs)", () => {
     const trim = { thresholdDb: -50, keepSec: 0.1 };
-    const sr =
-      "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.1:" +
-      "stop_periods=1:stop_threshold=-50dB:stop_silence=0.1:detection=rms";
+    const head =
+      "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.1:detection=rms";
+    // Tail trim uses areverse + head-trim + areverse: positive stop_periods
+    // truncates at the FIRST internal pause, so it must never be used here.
+    const sr = `${head},areverse,${head},areverse`;
     expect(buildConcatFilterComplex(2, { ...base, trim })).toBe(
       `[0]${sr}[s0];[1]${sr}[s1];[s0][s1]acrossfade=d=0.05:c1=hsin:c2=hsin`,
     );
+  });
+
+  it("never uses stop_periods (truncates at first internal pause)", () => {
+    const out = buildConcatFilterComplex(3, {
+      ...base,
+      trim: { thresholdDb: -50, keepSec: 0.1 },
+    });
+    expect(out).not.toContain("stop_periods");
+    expect(out.match(/areverse/g)).toHaveLength(6);
   });
 
   it("prepends per-input silenceremove when trim is enabled (3 inputs)", () => {
@@ -275,7 +286,7 @@ describe("buildConcatFilterComplex", () => {
     expect(out).toContain("[2]silenceremove");
     expect(out).toContain("[s0][s1]acrossfade=d=0.05:c1=hsin:c2=hsin[a0]");
     expect(out).toContain("[a0][s2]acrossfade=d=0.05:c1=hsin:c2=hsin");
-    expect(out.match(/silenceremove/g)).toHaveLength(3);
+    expect(out.match(/silenceremove/g)).toHaveLength(6);
   });
 
   it("uses provided trim parameters in the filter", () => {
@@ -284,9 +295,8 @@ describe("buildConcatFilterComplex", () => {
       trim: { thresholdDb: -40, keepSec: 0.2 },
     });
     expect(out).toContain("start_threshold=-40dB");
-    expect(out).toContain("stop_threshold=-40dB");
     expect(out).toContain("start_silence=0.2");
-    expect(out).toContain("stop_silence=0.2");
+    expect(out).not.toContain("stop_threshold");
   });
 
   it("respects crossfade duration and curve", () => {
@@ -314,7 +324,7 @@ describe("concatWavsWithCrossfade with trimSilence", () => {
     });
     const args = mockExec.mock.calls[0][0] as string[];
     const filter = args[args.indexOf("-filter_complex") + 1];
-    expect(filter.match(/silenceremove/g)).toHaveLength(3);
+    expect(filter.match(/silenceremove/g)).toHaveLength(6);
     expect(filter).toContain(`start_threshold=${TRIM_SILENCE_THRESHOLD_DB}dB`);
     expect(filter).toContain(`start_silence=${TRIM_SILENCE_KEEP_SEC}`);
   });
