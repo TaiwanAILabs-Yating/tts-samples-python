@@ -36,7 +36,7 @@ describe("applyBatchReplace", () => {
     useProjectStore.getState().applyBatchReplace([
       { sentenceIndex: 0, segmentIndex: 1, text: "汝敢知影？" },
       { sentenceIndex: 2, segmentIndex: 0, text: "師父問汝有啥物想法？" },
-    ]);
+    ], "你", "汝");
     const s = useProjectStore.getState().sentences;
     expect(s[0].pipeline!.segments[0].text).toBe("我看見你，");
     expect(s[0].pipeline!.segments[1].text).toBe("汝敢知影？");
@@ -44,11 +44,12 @@ describe("applyBatchReplace", () => {
     expect(s[2].pipeline!.segments[0].text).toBe("師父問汝有啥物想法？");
   });
 
-  it("rebuilds sentence.text from its segments for affected sentences only", () => {
+  it("updates sentence.text only within selected segments' spans, keeping punctuation", () => {
     useProjectStore.getState().applyBatchReplace([
       { sentenceIndex: 0, segmentIndex: 0, text: "我看見汝，" },
-    ]);
+    ], "你", "汝");
     const s = useProjectStore.getState().sentences;
+    // segment 1 not selected → its 你 stays; punctuation preserved
     expect(s[0].text).toBe("我看見汝，你敢知影？");
     expect(s[1].text).toBe("無關的句子。");
     expect(s[2].text).toBe("師父問你有啥物想法？");
@@ -58,7 +59,7 @@ describe("applyBatchReplace", () => {
     useProjectStore.getState().applyBatchReplace([
       { sentenceIndex: 0, segmentIndex: 0, text: "我看見汝，" },
       { sentenceIndex: 2, segmentIndex: 0, text: "師父問汝有啥物想法？" },
-    ]);
+    ], "你", "汝");
     const s = useProjectStore.getState().sentences;
     expect(s[0].status).toBe("generated");
     expect(s[1].status).toBe("generated");
@@ -68,7 +69,7 @@ describe("applyBatchReplace", () => {
   it("does not touch wordSegmentation, audio, history or asset key", () => {
     useProjectStore.getState().applyBatchReplace([
       { sentenceIndex: 0, segmentIndex: 0, text: "我看見汝，" },
-    ]);
+    ], "你", "汝");
     const p = useProjectStore.getState().sentences[0].pipeline!;
     expect(p.segments[0].wordSegmentation).toEqual(WORDSEG);
     expect(p.segments[0].status).toBe("success");
@@ -81,14 +82,14 @@ describe("applyBatchReplace", () => {
     useProjectStore.getState().applyBatchReplace([
       { sentenceIndex: 9, segmentIndex: 0, text: "x" },
       { sentenceIndex: 1, segmentIndex: 5, text: "x" },
-    ]);
+    ], "你", "汝");
     const after = useProjectStore.getState().sentences;
     expect(after).toEqual(before);
   });
 
   it("no-ops on empty edits", () => {
     const before = useProjectStore.getState().sentences;
-    useProjectStore.getState().applyBatchReplace([]);
+    useProjectStore.getState().applyBatchReplace([], "你", "汝");
     expect(useProjectStore.getState().sentences).toBe(before);
   });
 });

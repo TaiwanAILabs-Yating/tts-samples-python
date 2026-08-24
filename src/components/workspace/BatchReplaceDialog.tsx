@@ -12,6 +12,8 @@ import {
 export interface BatchReplaceApplyOptions {
   edits: SegmentTextEdit[];
   regenerate: boolean;
+  find: string;
+  replaceWith: string;
 }
 
 interface BatchReplaceDialogProps {
@@ -135,7 +137,7 @@ export function BatchReplaceDialog({ open, onClose, onApply }: BatchReplaceDialo
 
   const apply = (regenerate: boolean) => {
     if (!canApply) return;
-    onApply({ edits: toSegmentEdits(matches, selectedKeys), regenerate });
+    onApply({ edits: toSegmentEdits(matches, selectedKeys), regenerate, find, replaceWith });
   };
 
   return (

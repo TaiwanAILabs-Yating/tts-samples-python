@@ -17,6 +17,7 @@ import {
   splitDirectInputIntoSentences,
   MAX_SEGMENTS_FOR_PLAYER,
 } from "../utils/preprocessing.ts";
+import { extractOriginalSentenceTexts } from "../utils/sentence-text.ts";
 import { preloadFFmpeg } from "../services/ffmpeg-service.ts";
 import type { PipelineState, SegmentState as OrcSegmentState } from "../services/tts-orchestrator.ts";
 
@@ -51,8 +52,8 @@ export function WorkspacePage() {
   const [isBatchReplaceOpen, setBatchReplaceOpen] = useState(false);
   const applyBatchReplace = useProjectStore((s) => s.applyBatchReplace);
   const handleBatchReplaceApply = useCallback(
-    ({ edits, regenerate }: BatchReplaceApplyOptions) => {
-      applyBatchReplace(edits);
+    ({ edits, regenerate, find, replaceWith }: BatchReplaceApplyOptions) => {
+      applyBatchReplace(edits, find, replaceWith);
       setBatchReplaceOpen(false);
       if (regenerate) {
         // Fire-and-forget: progress surfaces through per-segment status in the store.
@@ -122,6 +123,9 @@ export function WorkspacePage() {
   useEffect(() => {
     if (rawText && sentences.length === 0) {
       let sentenceSegmentGroups: string[][];
+      // 使用者的原始文字（保留標點）— 顯示與 metadata.json 都用它，
+      // 不用 stripPunctuation 過的 segments 重組（會遺失標點）。
+      let originalTexts: string[];
 
       if (inputMode === "upload") {
         const lines = rawText
@@ -131,13 +135,16 @@ export function WorkspacePage() {
         sentenceSegmentGroups = lines.map((line) =>
           splitSentences(line, config.segmentMode, config.minTokens, config.maxTokens),
         );
+        originalTexts = lines;
       } else {
+        const trimmed = rawText.trim();
         sentenceSegmentGroups = splitDirectInputIntoSentences(
-          rawText.trim(),
+          trimmed,
           config.segmentMode,
           config.minTokens,
           config.maxTokens,
         );
+        originalTexts = extractOriginalSentenceTexts(trimmed, sentenceSegmentGroups);
       }
 
       const newSentences: SentenceState[] = sentenceSegmentGroups.map((segs, i) => {
@@ -151,7 +158,7 @@ export function WorkspacePage() {
         const pipeline: PipelineState = { segments };
         return {
           index: i,
-          text: segs.join(""),
+          text: originalTexts[i]?.trim() || segs.join(""),
           status: "pending" as const,
           pipeline,
         };
