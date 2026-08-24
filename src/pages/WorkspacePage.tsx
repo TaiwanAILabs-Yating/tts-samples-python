@@ -9,7 +9,7 @@ import {
   BatchReplaceDialog,
   type BatchReplaceApplyOptions,
 } from "../components/workspace/BatchReplaceDialog.tsx";
-import { useProjectStore, type SentenceState } from "../stores/project-store.ts";
+import { useProjectStore } from "../stores/project-store.ts";
 import { useGeneration } from "../hooks/useGeneration.ts";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts.ts";
 import {
@@ -17,9 +17,8 @@ import {
   splitDirectInputIntoSentences,
   MAX_SEGMENTS_FOR_PLAYER,
 } from "../utils/preprocessing.ts";
-import { extractOriginalSentenceTexts } from "../utils/sentence-text.ts";
+import { buildSentenceStates } from "../utils/sentence-builder.ts";
 import { preloadFFmpeg } from "../services/ffmpeg-service.ts";
-import type { PipelineState, SegmentState as OrcSegmentState } from "../services/tts-orchestrator.ts";
 
 export function WorkspacePage() {
   const rawText = useProjectStore((s) => s.rawText);
@@ -122,48 +121,33 @@ export function WorkspacePage() {
   // - Upload File → each non-empty line → splitSentences → segments
   useEffect(() => {
     if (rawText && sentences.length === 0) {
-      let sentenceSegmentGroups: string[][];
-      // 使用者的原始文字（保留標點）— 顯示與 metadata.json 都用它，
-      // 不用 stripPunctuation 過的 segments 重組（會遺失標點）。
-      let originalTexts: string[];
-
       if (inputMode === "upload") {
         const lines = rawText
           .split("\n")
           .map((line) => line.trim())
           .filter((line) => line.length > 0);
-        sentenceSegmentGroups = lines.map((line) =>
-          splitSentences(line, config.segmentMode, config.minTokens, config.maxTokens),
+        setSentences(
+          buildSentenceStates(
+            lines.map((line) =>
+              splitSentences(line, config.segmentMode, config.minTokens, config.maxTokens),
+            ),
+            { mode: "upload", lines },
+          ),
         );
-        originalTexts = lines;
       } else {
         const trimmed = rawText.trim();
-        sentenceSegmentGroups = splitDirectInputIntoSentences(
-          trimmed,
-          config.segmentMode,
-          config.minTokens,
-          config.maxTokens,
+        setSentences(
+          buildSentenceStates(
+            splitDirectInputIntoSentences(
+              trimmed,
+              config.segmentMode,
+              config.minTokens,
+              config.maxTokens,
+            ),
+            { mode: "direct", rawText: trimmed },
+          ),
         );
-        originalTexts = extractOriginalSentenceTexts(trimmed, sentenceSegmentGroups);
       }
-
-      const newSentences: SentenceState[] = sentenceSegmentGroups.map((segs, i) => {
-        const segments: OrcSegmentState[] = segs.map((segText, si) => ({
-          index: si,
-          text: segText,
-          status: "pending" as const,
-          attempts: 0,
-          history: [],
-        }));
-        const pipeline: PipelineState = { segments };
-        return {
-          index: i,
-          text: originalTexts[i]?.trim() || segs.join(""),
-          status: "pending" as const,
-          pipeline,
-        };
-      });
-      setSentences(newSentences);
     }
   }, [rawText, inputMode, sentences.length, setSentences, config.segmentMode, config.minTokens, config.maxTokens]);
 

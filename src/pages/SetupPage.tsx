@@ -5,7 +5,7 @@ import { VoiceSetup } from "../components/setup/VoiceSetup.tsx";
 import { TextInputCard } from "../components/setup/TextInputCard.tsx";
 import { GenerationParams } from "../components/setup/GenerationParams.tsx";
 import { AdvancedSettingsDrawer } from "../components/workspace/AdvancedSettingsDrawer.tsx";
-import { useProjectStore, type SentenceState } from "../stores/project-store.ts";
+import { useProjectStore } from "../stores/project-store.ts";
 import {
   splitSentences,
   splitDirectInputIntoSentences,
@@ -16,7 +16,8 @@ import {
   MAX_DIRECT_CHARS,
   MAX_PROJECTS,
 } from "../utils/preprocessing.ts";
-import type { PipelineState, SegmentState as OrcSegmentState } from "../services/tts-orchestrator.ts";
+import { buildSentenceStates } from "../utils/sentence-builder.ts";
+import { extractOriginalSentenceTexts } from "../utils/sentence-text.ts";
 
 export function SetupPage() {
   const navigate = useNavigate();
@@ -122,9 +123,10 @@ export function SetupPage() {
   const previewSegments = useMemo(() => {
     if (!showPreview) return [];
     if (inputMode === "direct") {
+      const originals = extractOriginalSentenceTexts(rawText.trim(), directSegmentGroups);
       return directSegmentGroups.map((segs, i) => ({
         sentenceIndex: i,
-        text: segs.join(""),
+        text: originals[i]?.trim() || segs.join(""),
         segments: segs,
       }));
     }
@@ -153,22 +155,14 @@ export function SetupPage() {
             splitSentences(text, config.segmentMode, config.minTokens, config.maxTokens),
           );
 
-    const newSentences: SentenceState[] = sentenceSegmentGroups.map((segs, i) => {
-      const segments: OrcSegmentState[] = segs.map((segText, si) => ({
-        index: si,
-        text: segText,
-        status: "pending" as const,
-        attempts: 0,
-        history: [],
-      }));
-      const pipeline: PipelineState = { segments };
-      return {
-        index: i,
-        text: segs.join(""),
-        status: "pending" as const,
-        pipeline,
-      };
-    });
+    // sentence.text must stay the user's original text (punctuation included);
+    // only the segments are punctuation-stripped for TTS.
+    const newSentences = buildSentenceStates(
+      sentenceSegmentGroups,
+      inputMode === "direct"
+        ? { mode: "direct", rawText: rawText.trim() }
+        : { mode: "upload", lines: sentenceTexts },
+    );
 
     useProjectStore.setState({
       autoGenerate: true,
