@@ -2,7 +2,7 @@
 
 > 日期：2026-08-24
 > Branch: `feat/segment-silence-remove`
-> 狀態：規劃中，待 review 後實作
+> 狀態：已 review 定案（見文末決議），實作中
 
 ## 需求
 
@@ -42,16 +42,17 @@ store）。優點是單段試聽/下載也一致，缺點是每個 segment 多�
 exec、且會改動 history 與 duration 顯示。目前需求明確是「合併時」，
 先不做；若之後想要單段也修剪再升級。
 
-## 設定（Advanced Settings Drawer 新增「Silence Removal」區塊）
+## 設定
 
-| 欄位 | ProjectConfig key | 預設 | 範圍 |
-|------|-------------------|------|------|
-| 啟用開關 | `trimSilence: boolean` | 待定（見開放問題 1） | — |
-| 靜音門檻 | `trimSilenceThresholdDb: number` | -50 dB | -60 ～ -30 |
-| 保留靜音長度 | `trimSilenceKeepSec: number` | 0.1 s | 0 ～ 0.3 |
+UI 只曝露開關；門檻與保留長度為程式常數，不進 ProjectConfig：
 
-保留長度 UI 提示：建議 ≥ crossfade duration（預設 0.05s），否則極端情況
-（整段近乎靜音的 segment 被剪到比 crossfade 短）acrossfade 會失敗。
+| 項目 | 形式 | 值 |
+|------|------|-----|
+| 啟用開關 | `ProjectConfig.trimSilence: boolean` | 預設 **ON**（舊專案缺欄位時以 `?? true` 視為 ON） |
+| 靜音門檻 | 常數 `TRIM_SILENCE_THRESHOLD_DB` | -50 dB |
+| 保留靜音長度 | 常數 `TRIM_SILENCE_KEEP_SEC` | 0.1 s（> crossfade 預設 0.05s，保證 acrossfade 有材料） |
+
+三者皆記錄於匯出 ZIP 的 `metadata.json` → `config.advanced`。
 
 ## 套用範圍（三個 concat call site）
 
@@ -59,7 +60,7 @@ exec、且會改動 history 與 duration 顯示。目前需求明確是「合併
 |-----------|----------|------|
 | `recombineOutputs()`（生成後預覽、regen 後重新 concat、`concatOnly()` 下載） | ✅ | 主要需求 |
 | SentenceSidebar 單句下載 concat | ✅ | 同上，輸入是 segments |
-| SentenceSidebar `Concat all sentences`（全案合併） | ❌（待定，見開放問題 2） | 輸入是 sentence 音檔，邊緣已修剪過；句與句之間的停頓通常要保留 |
+| SentenceSidebar `Concat all sentences`（全案合併） | ❌（已定案） | 輸入是 sentence 音檔，邊緣已修剪過；句與句之間的停頓要保留 |
 
 ## 實作工單
 
@@ -82,8 +83,7 @@ exec、且會改動 history 與 duration 顯示。目前需求明確是「合併
   - **Service**：Max Parallel、Max Retries、Retry Base Delay
   - **Input — Prompt Voice**：Prompt Start / End Silence（padding 輸入 prompt 音檔）
   - **Output — Segment Audio**：Add End Silence Token + `CROSSFADE` 子區塊
-    （Duration、Curve）+ `SILENCE REMOVAL` 子區塊（toggle + Threshold +
-    Keep Silence + 提示）
+    （Duration、Curve）+ `SILENCE REMOVAL` 子區塊（僅 toggle + 說明文字）
 - 純 UI 重排，不改任何 config key 名稱與行為
 - 涉及：`src/stores/project-store.ts`、`src/components/workspace/AdvancedSettingsDrawer.tsx`
 
@@ -109,12 +109,9 @@ exec、且會改動 history 與 duration 顯示。目前需求明確是「合併
 - ffmpeg.wasm core 0.12.6（FFmpeg 5.x）支援 `silenceremove` 的
   start/stop 參數組，無版本問題
 
-## 開放問題（待 review 決定）
+## Review 決議（2026-08-24）
 
-1. `trimSilence` 預設要 ON 還是 OFF？
-   - ON：新專案直接享受修剪；但改變既有專案 regen 後的合併行為
-   - OFF：行為不變，需要的人自己開（建議：OFF，穩妥）
-2. `Concat all sentences`（全案合併）要不要也修剪 sentence 邊界？
-   （建議：不要，保留句間自然停頓）
-3. 門檻與保留長度要不要曝露在 UI？還是先寫死 -50dB / 0.1s 只給開關？
-   （建議：曝露，與現有 Crossfade 區塊的粒度一致）
+1. `trimSilence` 預設 **ON**
+2. `Concat all sentences`（全案合併）**不修剪**
+3. 門檻 / 保留長度 **不曝露 UI**，寫死 -50dB / 0.1s，但需記錄在
+   `metadata.json`
