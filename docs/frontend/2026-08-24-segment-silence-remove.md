@@ -115,6 +115,11 @@ UI 只曝露開關；門檻與保留長度為程式常數，不進 ProjectConfig
     `metadata.json` 的 `sentences[].duration` 與 `segments[].start/end`）
     ＝`utils/segment-timeline.ts` 的 `computeMergedTimeline()`，會吃
     `trimmedDuration` 並扣除每個接點的 crossfade 重疊
+  - **crossfade 區間歸屬以中點切開**：音檔上該區間同時屬於前後兩段，但時間軸
+    每個瞬間只能有一個擁有者。曾經回報重疊區間，導致波形把前一段的顏色畫到
+    後一段開頭、分隔線與顏色切換差 0.05s、播放中高亮延遲 50ms。改為
+    contiguous + 不重疊（各段擁有自己主導的那半個淡入淡出），`totalDuration`
+    不受影響；`metadata.json` 的 `start`/`end` 因此也可直接用於字幕或切檔
   - `SegmentState.trimmedDuration` 是**純量測值**（產生音檔時就以 JS RMS 掃描
     估算），與 trimSilence 設定無關；要不要採用由讀取端依當前設定決定，
     因此切換設定不需重新生成，也不受 concat 走哪條路徑影響
