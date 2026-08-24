@@ -76,9 +76,15 @@ exec、且會改動 history 與 duration 顯示。目前需求明確是「合併
 - 單輸入 early-return（`length === 1`）維持不修剪（無 concat 即無套用）
 - 涉及：`src/services/ffmpeg-service.ts`
 
-### 工單 3：Config + UI
+### 工單 3：Config + UI（含 Drawer 三大區塊重組）
 - `ProjectConfig` 新增三欄位 + `defaultConfig`
-- `AdvancedSettingsDrawer` 新增 Silence Removal 區塊（toggle + 2 sliders）
+- `AdvancedSettingsDrawer` 重組為三大區塊（見 `tts_api.pen` 設計稿）：
+  - **Service**：Max Parallel、Max Retries、Retry Base Delay
+  - **Input — Prompt Voice**：Prompt Start / End Silence（padding 輸入 prompt 音檔）
+  - **Output — Segment Audio**：Add End Silence Token + `CROSSFADE` 子區塊
+    （Duration、Curve）+ `SILENCE REMOVAL` 子區塊（toggle + Threshold +
+    Keep Silence + 提示）
+- 純 UI 重排，不改任何 config key 名稱與行為
 - 涉及：`src/stores/project-store.ts`、`src/components/workspace/AdvancedSettingsDrawer.tsx`
 
 ### 工單 4：call site 接線 + 序列化
