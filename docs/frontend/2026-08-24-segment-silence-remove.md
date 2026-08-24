@@ -76,7 +76,10 @@ UI 只曝露開關；門檻與保留長度為程式常數，不進 ProjectConfig
 ### 工單 2：concat pipeline 接線
 - `concatWavsWithCrossfade()` 增加 options 參數（trim 設定）
 - 直接路徑（N ≤ 50）與 Pass 1 傳入 trim；Pass 2 不傳
-- 單輸入 early-return（`length === 1`）維持不修剪（無 concat 即無套用）
+- **修剪一律套用在每個原始 segment，含只有一段的情況**（原規劃寫「單輸入
+  不修剪」，但那會讓「1 段的句子不修剪、2 段的句子修剪」行為不一致，且
+  `trimmedDuration` 與音檔對不上 → 改為一致套用；trim 關閉時單輸入仍直接
+  回傳、不呼叫 FFmpeg）
 - 涉及：`src/services/ffmpeg-service.ts`
 
 ### 工單 3：Config + UI（含 Drawer 三大區塊重組）
@@ -106,10 +109,17 @@ UI 只曝露開關；門檻與保留長度為程式常數，不進 ProjectConfig
 - **全靜音 segment**：silenceremove 後輸出可能只剩保留長度；若使用者把
   保留長度設 0，輸出可能為空 → acrossfade 失敗。UI 以 min 提示緩解；
   concat 失敗時錯誤會落在既有的 per-sentence error 處理
-- **時長顯示**：segment card 顯示的 duration 維持原始音檔長度；
-  WaveformPlayer 的 segment 時間軸則使用 `SegmentState.trimmedDuration`
-  （concat 時以 JS RMS 掃描估算的修剪後長度，與 FFmpeg 實際輸出 parity
-  驗證一致）並扣除 crossfade 重疊，避免時間軸與合併音檔錯位
+- **時長顯示分兩種語意，不要混用**：
+  - **單一 segment 的長度**（segment card、單段下載）＝原始音檔長度 `duration`
+  - **合併後音檔的時間軸**（WaveformPlayer、句子 duration badge、sidebar 清單、
+    `metadata.json` 的 `sentences[].duration` 與 `segments[].start/end`）
+    ＝`utils/segment-timeline.ts` 的 `computeMergedTimeline()`，會吃
+    `trimmedDuration` 並扣除每個接點的 crossfade 重疊
+  - `SegmentState.trimmedDuration` 是**純量測值**（產生音檔時就以 JS RMS 掃描
+    估算），與 trimSilence 設定無關；要不要採用由讀取端依當前設定決定，
+    因此切換設定不需重新生成，也不受 concat 走哪條路徑影響
+  - JS 估算與 FFmpeg 實際輸出 parity 驗證一致（單段 2.500/2.600s；
+    三段合併估 7.400s vs 實測 7.399s）
 - ffmpeg.wasm core 0.12.6（FFmpeg 5.x）支援 `silenceremove` 的
   start/stop 參數組，無版本問題
 

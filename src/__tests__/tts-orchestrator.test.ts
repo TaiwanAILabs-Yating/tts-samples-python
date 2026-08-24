@@ -106,23 +106,38 @@ describe("generateAll", () => {
     mockConcatWavs.mockResolvedValue(fakeConcatAudio);
   });
 
-  it("records trimmedDuration on segments when trimSilence is on (default)", async () => {
+  it("measures trimmedDuration alongside duration for every generated segment", async () => {
     const config = makeGenerateAllConfig({
       segments: [{ text: "第一句" }, { text: "第二句" }],
     });
     const result = await generateAll(config);
-    expect(result.segments[0].trimmedDuration).toBe(3.0);
-    expect(result.segments[1].trimmedDuration).toBe(3.0);
+    expect(result.segments.map((s) => s.duration)).toEqual([3.5, 3.5]);
+    expect(result.segments.map((s) => s.trimmedDuration)).toEqual([3.0, 3.0]);
   });
 
-  it("clears trimmedDuration when trimSilence is off", async () => {
+  it("records trimmedDuration even when trimSilence is off (read-time decision)", async () => {
     const config = makeGenerateAllConfig({
       segments: [{ text: "第一句" }, { text: "第二句" }],
       trimSilence: false,
     });
     const result = await generateAll(config);
-    expect(result.segments[0].trimmedDuration).toBeUndefined();
-    expect(mockEstimateTrimmed).not.toHaveBeenCalled();
+    // The measurement is config-independent; consumers ignore it when the
+    // setting is off, so toggling the setting needs no regeneration.
+    expect(result.segments[0].trimmedDuration).toBe(3.0);
+  });
+
+  it("leaves trimmedDuration unset on failed segments", async () => {
+    mockSendZeroShot
+      .mockResolvedValueOnce(fakeAudio)
+      .mockRejectedValueOnce(new Error("API error"));
+    const result = await generateAll(
+      makeGenerateAllConfig({
+        segments: [{ text: "成功" }, { text: "失敗" }],
+        maxRetries: 0,
+      }),
+    );
+    expect(result.segments[0].trimmedDuration).toBe(3.0);
+    expect(result.segments[1].trimmedDuration).toBeUndefined();
   });
 
   it("executes pipeline: build segments → upload → generate → concat", async () => {

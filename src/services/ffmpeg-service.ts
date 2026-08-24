@@ -208,8 +208,16 @@ export function buildConcatFilterComplex(
       `start_silence=${trim.keepSec}:detection=rms`;
     const sr = `${head},areverse,${head},areverse`;
     for (let i = 0; i < n; i++) {
-      filters.push(`[${i}]${sr}[s${i}]`);
+      // n === 1 needs an unlabeled output so FFmpeg auto-maps it.
+      filters.push(n === 1 ? `[${i}]${sr}` : `[${i}]${sr}[s${i}]`);
     }
+  }
+
+  if (n === 1) {
+    // A lone input has no joint to crossfade — the trim chain (if any) is the
+    // whole filter. Trimming must still apply so the segment's trimmedDuration
+    // keeps matching its audio.
+    return trim ? filters[0] : "";
   }
 
   if (n === 2) {
@@ -276,7 +284,8 @@ export async function concatWavsWithCrossfade(
     throw new Error("No audio files to concatenate");
   }
 
-  if (audioBuffers.length === 1) {
+  // A lone segment still needs a pass when trimming applies.
+  if (audioBuffers.length === 1 && !trim) {
     return audioBuffers[0];
   }
 
@@ -369,8 +378,9 @@ async function concatBatch(
   onProgress?: (progress: number) => void,
   trim?: TrimSilenceParams,
 ): Promise<ArrayBuffer> {
-  // A leftover single-file batch (N % 50 === 1 in pass 1) needs no FFmpeg call.
-  if (audioBuffers.length === 1) {
+  // A leftover single-file batch (N % 50 === 1 in pass 1) needs no FFmpeg call
+  // unless it still has to be trimmed.
+  if (audioBuffers.length === 1 && !trim) {
     onProgress?.(1);
     return audioBuffers[0];
   }

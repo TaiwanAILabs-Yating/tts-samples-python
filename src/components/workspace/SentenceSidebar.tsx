@@ -8,6 +8,7 @@ import {
   TRIM_SILENCE_KEEP_SEC,
   type ConcatProgress,
 } from "../../services/ffmpeg-service.ts";
+import { computeMergedTimeline } from "../../utils/segment-timeline.ts";
 
 const STATUS_CONFIG: Record<
   SentenceStatus,
@@ -20,6 +21,11 @@ const STATUS_CONFIG: Record<
   rejected: { color: "#EF4444", label: "rejected" },
   error: { color: "#EF4444", label: "error" },
 };
+
+/** Round seconds to millisecond precision for metadata readability. */
+function round3(seconds: number): number {
+  return Math.round(seconds * 1000) / 1000;
+}
 
 interface SentenceSidebarProps {
   isGenerating: boolean;
@@ -46,6 +52,7 @@ export function SentenceSidebar({
   const deleteProject = useProjectStore((s) => s.deleteProject);
   const config = useProjectStore((s) => s.config);
   const inputMode = useProjectStore((s) => s.inputMode);
+  const trimSilence = config.trimSilence ?? true;
 
   const approvedCount = sentences.filter((s) => s.status === "approved").length;
   const pendingCount = sentences.filter(
@@ -187,20 +194,20 @@ export function SentenceSidebar({
             .map((seg) => seg.audio!);
 
           if (segmentAudios.length === 0) continue;
-          if (segmentAudios.length === 1) {
-            sentenceAudio = segmentAudios[0];
-          } else {
-            setDownloadConcatLabel(
-              `合併句子 ${String(s.index + 1).padStart(3, "0")}`,
-            );
-            sentenceAudio = await concatWavsWithCrossfade(
-              segmentAudios,
-              config.crossfadeDuration ?? 0.05,
-              config.fadeCurve ?? "tri",
-              setDownloadConcatProgress,
-              { trimSilence: config.trimSilence ?? true },
-            );
-          }
+          setDownloadConcatLabel(
+            `合併句子 ${String(s.index + 1).padStart(3, "0")}`,
+          );
+          // Always go through concat — a lone segment still needs trimming when
+          // silence removal is on, otherwise its audio would not match the
+          // duration reported in metadata.json. concatWavsWithCrossfade skips
+          // FFmpeg entirely for a lone segment when trimming is off.
+          sentenceAudio = await concatWavsWithCrossfade(
+            segmentAudios,
+            config.crossfadeDuration ?? 0.05,
+            config.fadeCurve ?? "tri",
+            setDownloadConcatProgress,
+            { trimSilence },
+          );
         }
 
         files.push({
@@ -213,6 +220,8 @@ export function SentenceSidebar({
       // Concat all approved sentences into one WAV only when explicitly checked.
       if (concatAll && sentenceAudioForFinalConcat.length > 0) {
         setDownloadConcatLabel("合併所有句子");
+        // No trimming here by design: inputs are already-trimmed sentence
+        // audio, and the pauses between sentences must be preserved.
         const concatenated = await concatWavsWithCrossfade(
           sentenceAudioForFinalConcat,
           config.crossfadeDuration ?? 0.05,
@@ -254,24 +263,27 @@ export function SentenceSidebar({
             trimSilenceKeepSec: TRIM_SILENCE_KEEP_SEC,
           },
         },
-        sentences: sentences.map((s) => ({
-          index: s.index,
-          text: s.text,
-          status: s.status,
-          notes: s.notes || null,
-          segmentCount: s.pipeline?.segments.length ?? 0,
-          duration: s.pipeline?.segments
-            .filter((seg) => seg.duration != null)
-            .reduce((sum, seg) => sum + seg.duration!, 0) ?? null,
-          audioFile:
-            s.status === "approved" ? sentenceAudioName(s.index) : null,
-          segments: (() => {
-            const segs = s.pipeline?.segments ?? [];
-            let offset = 0;
-            return segs.map((seg, si) => {
-              const start = offset;
-              const dur = seg.duration ?? 0;
-              offset += dur;
+        sentences: sentences.map((s) => {
+          const segs = s.pipeline?.segments ?? [];
+          // Offsets inside the merged sentence WAV — must account for silence
+          // trimming and crossfade overlap, or the timeline drifts from the
+          // audio it describes. Shared with the player and duration badges.
+          const timeline = computeMergedTimeline(
+            segs,
+            config.crossfadeDuration,
+            trimSilence,
+          );
+          return {
+            index: s.index,
+            text: s.text,
+            status: s.status,
+            notes: s.notes || null,
+            segmentCount: segs.length,
+            duration: s.pipeline ? round3(timeline.totalDuration) : null,
+            audioFile:
+              s.status === "approved" ? sentenceAudioName(s.index) : null,
+            segments: segs.map((seg, si) => {
+              const span = timeline.spans[si];
               const ttsText = seg.wordSegmentation?.length
                 ? seg.wordSegmentation.map((ws) => (ws.useTailo ? ws.tailo : ws.word)).join("")
                 : seg.text;
@@ -279,8 +291,8 @@ export function SentenceSidebar({
                 index: si,
                 text: seg.text,
                 ttsText: ttsText !== seg.text ? ttsText : undefined,
-                start,
-                end: offset,
+                start: round3(span.start),
+                end: round3(span.end),
                 wordSegmentation: seg.wordSegmentation?.map((ws) => ({
                   word: ws.word,
                   tailo: ws.tailo,
@@ -288,9 +300,9 @@ export function SentenceSidebar({
                   inVocab: ws.inVocab,
                 })),
               };
-            });
-          })(),
-        })),
+            }),
+          };
+        }),
       };
       const encoder = new TextEncoder();
       files.push({
@@ -400,13 +412,14 @@ export function SentenceSidebar({
             const isSelected = i === selectedIndex;
             const cfg = STATUS_CONFIG[sentence.status];
             const segCount = sentence.pipeline?.segments.length ?? 0;
-            const duration = sentence.pipeline?.segments
-              .filter((s) => s.duration != null)
-              .reduce((sum, s) => sum + s.duration!, 0);
-            const durStr =
-              duration != null && duration > 0
-                ? `${duration.toFixed(2)}s`
-                : "--";
+            const duration = sentence.pipeline
+              ? computeMergedTimeline(
+                  sentence.pipeline.segments,
+                  config.crossfadeDuration,
+                  trimSilence,
+                ).totalDuration
+              : 0;
+            const durStr = duration > 0 ? `${duration.toFixed(2)}s` : "--";
 
             return (
               <button

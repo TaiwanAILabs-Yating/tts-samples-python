@@ -37,9 +37,10 @@ export interface SegmentState {
   audio?: ArrayBuffer;
   duration?: number;
   /**
-   * Effective duration inside the concatenated audio after silenceremove
-   * head/tail trimming. Set at concat time when trimSilence is on; undefined
-   * when trimming is off. Display-only (WaveformPlayer segment timeline).
+   * Measured duration this audio would have after silenceremove head/tail
+   * trimming. Recorded whenever audio is generated, independent of the
+   * trimSilence setting — consumers decide whether to use it (see
+   * utils/segment-timeline). Display-only; never sent to TTS.
    */
   trimmedDuration?: number;
   error?: string;
@@ -118,6 +119,25 @@ function buildTtsText(segment: SegmentState): string {
     .join("");
 }
 
+/**
+ * Record both duration metrics for freshly generated segment audio.
+ *
+ * `duration` is the standalone segment's length (what the segment card shows
+ * and what an individual segment download contains). `trimmedDuration` is a
+ * pure measurement of what silenceremove would leave — recorded here rather
+ * than at concat time so it is available no matter which concat path runs
+ * (or whether concat runs at all, e.g. skipConcat sentences). Whether a
+ * timeline uses it is decided at read time by the current trimSilence setting.
+ */
+function applyAudioMetrics(segment: SegmentState, audio: ArrayBuffer): void {
+  segment.duration = getWavDuration(audio);
+  segment.trimmedDuration = estimateTrimmedWavDuration(
+    audio,
+    TRIM_SILENCE_THRESHOLD_DB,
+    TRIM_SILENCE_KEEP_SEC,
+  );
+}
+
 function buildSegmentStates(inputs: SegmentInput[]): SegmentState[] {
   return inputs.map((input, index) => ({
     index,
@@ -155,18 +175,6 @@ async function recombineOutputs(
   }
 
   const audios = successSegments.map((s) => s.audio!);
-
-  // Keep the display timeline in sync with what the filter actually removes:
-  // record each segment's post-trim duration (or clear it when trimming is off).
-  for (const seg of successSegments) {
-    seg.trimmedDuration = trimSilence
-      ? estimateTrimmedWavDuration(
-          seg.audio!,
-          TRIM_SILENCE_THRESHOLD_DB,
-          TRIM_SILENCE_KEEP_SEC,
-        )
-      : undefined;
-  }
 
   let concatenatedAudio: ArrayBuffer;
   try {
@@ -268,7 +276,7 @@ export async function generateAll(
       if (result.success && result.data) {
         segment.status = "success";
         segment.audio = result.data;
-        segment.duration = getWavDuration(result.data);
+        applyAudioMetrics(segment, result.data);
         segment.attempts = result.attempts;
       } else {
         segment.status = "error";
@@ -376,7 +384,7 @@ export async function regenerateSegment(
   if (result.success && result.data) {
     segment.status = "success";
     segment.audio = result.data;
-    segment.duration = getWavDuration(result.data);
+    applyAudioMetrics(segment, result.data);
     segment.attempts = result.attempts;
   } else {
     segment.status = "error";
@@ -454,7 +462,7 @@ export async function regenerateSentence(
       if (result.success && result.data) {
         segment.status = "success";
         segment.audio = result.data;
-        segment.duration = getWavDuration(result.data);
+        applyAudioMetrics(segment, result.data);
         segment.attempts = result.attempts;
       } else {
         segment.status = "error";

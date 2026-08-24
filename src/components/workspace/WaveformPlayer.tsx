@@ -8,6 +8,7 @@ import {
   useImperativeHandle,
 } from "react";
 import { useProjectStore } from "../../stores/project-store.ts";
+import { computeMergedTimeline } from "../../utils/segment-timeline.ts";
 import { useAudioPlayer, type SegmentRange } from "../../hooks/useAudioPlayer.ts";
 
 export interface WaveformPlayerHandle {
@@ -72,6 +73,7 @@ export const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerPro
   const sentences = useProjectStore((s) => s.sentences);
   const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
   const crossfadeDuration = useProjectStore((s) => s.config.crossfadeDuration);
+  const trimSilence = useProjectStore((s) => s.config.trimSilence ?? true);
   const sentence = sentences[selectedIndex];
   const pipeline = sentence?.pipeline;
 
@@ -88,31 +90,19 @@ export const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerPro
 
   const player = useAudioPlayer();
 
-  // Compute segment ranges from pipeline data.
-  // Uses the post-trim duration when silence removal ran at concat time
-  // (trimmedDuration), and accounts for the crossfade overlap between
-  // consecutive audible segments so boundaries line up with the merged audio.
+  // Segment boundaries inside the merged audio — silence-trim and crossfade
+  // overlap aware. Shared with the duration badges and metadata.json export.
   const segmentRanges: SegmentRange[] = useMemo(() => {
-    if (!pipeline?.segments) return [];
-    const xfade = crossfadeDuration ?? 0.05;
-    const ranges: SegmentRange[] = [];
-    let offset = 0;
-    let joints = 0;
-    for (const seg of pipeline.segments) {
-      const dur = seg.trimmedDuration ?? seg.duration ?? 0;
-      const start = joints > 0 && dur > 0 ? Math.max(0, offset - xfade) : offset;
-      ranges.push({
-        startTime: start,
-        endTime: start + dur,
-        text: seg.text,
-      });
-      if (dur > 0) {
-        offset = start + dur;
-        joints++;
-      }
-    }
-    return ranges;
-  }, [pipeline?.segments, crossfadeDuration]);
+    const segs = pipeline?.segments;
+    if (!segs) return [];
+    return computeMergedTimeline(segs, crossfadeDuration, trimSilence).spans.map(
+      (span) => ({
+        startTime: span.start,
+        endTime: span.end,
+        text: segs[span.index].text,
+      }),
+    );
+  }, [pipeline?.segments, crossfadeDuration, trimSilence]);
 
   // Report current segment index to parent
   const prevSegIdxRef = useRef(-1);
