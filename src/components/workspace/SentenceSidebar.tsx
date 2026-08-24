@@ -4,6 +4,8 @@ import { useProjectStore, type SentenceStatus } from "../../stores/project-store
 import type { GenerationProgress } from "../../hooks/useGeneration.ts";
 import {
   concatWavsWithCrossfade,
+  TRIM_SILENCE_THRESHOLD_DB,
+  TRIM_SILENCE_KEEP_SEC,
   type ConcatProgress,
 } from "../../services/ffmpeg-service.ts";
 
@@ -196,6 +198,7 @@ export function SentenceSidebar({
               config.crossfadeDuration ?? 0.05,
               config.fadeCurve ?? "tri",
               setDownloadConcatProgress,
+              { trimSilence: config.trimSilence ?? true },
             );
           }
         }
@@ -246,6 +249,9 @@ export function SentenceSidebar({
             fadeCurve: config.fadeCurve,
             startSilence: config.startSilence,
             endSilence: config.endSilence,
+            trimSilence: config.trimSilence ?? true,
+            trimSilenceThresholdDb: TRIM_SILENCE_THRESHOLD_DB,
+            trimSilenceKeepSec: TRIM_SILENCE_KEEP_SEC,
           },
         },
         sentences: sentences.map((s) => ({

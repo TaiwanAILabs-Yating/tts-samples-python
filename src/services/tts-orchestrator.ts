@@ -60,6 +60,8 @@ export interface GenerateAllConfig {
   retryBaseDelay?: number;
   crossfadeDuration?: number;
   fadeCurve?: FadeCurve;
+  /** Trim leading/trailing silence of each segment before crossfade (default ON). */
+  trimSilence?: boolean;
   startSilence?: number;
   endSilence?: number;
   /** Skip auto-concat after generation; caller must invoke concatOnly() later. */
@@ -77,6 +79,8 @@ export interface RegenerateConfig {
   retryBaseDelay?: number;
   crossfadeDuration?: number;
   fadeCurve?: FadeCurve;
+  /** Trim leading/trailing silence of each segment before crossfade (default ON). */
+  trimSilence?: boolean;
   config: TtsConfig;
 }
 
@@ -128,6 +132,7 @@ async function recombineOutputs(
   segments: SegmentState[],
   crossfadeDuration: number,
   fadeCurve: FadeCurve,
+  trimSilence: boolean,
   callbacks?: OrchestratorCallbacks
 ): Promise<{ concatenatedAudio?: ArrayBuffer }> {
   const successSegments = segments.filter(
@@ -148,6 +153,7 @@ async function recombineOutputs(
       crossfadeDuration,
       fadeCurve,
       (info) => callbacks?.onConcatProgress?.(info),
+      { trimSilence },
     );
     callbacks?.onConcatComplete?.(concatenatedAudio);
     logger.orchestrator.info("Concat complete");
@@ -270,6 +276,7 @@ export async function generateAll(
     segments,
     crossfadeDuration,
     fadeCurve,
+    config.trimSilence ?? true,
     callbacks
   );
 
@@ -287,11 +294,13 @@ export async function concatOnly(
   crossfadeDuration: number = 0.05,
   fadeCurve: FadeCurve = "tri",
   callbacks?: OrchestratorCallbacks,
+  trimSilence: boolean = true,
 ): Promise<PipelineState> {
   const { concatenatedAudio } = await recombineOutputs(
     state.segments,
     crossfadeDuration,
     fadeCurve,
+    trimSilence,
     callbacks,
   );
   return { ...state, concatenatedAudio };
@@ -365,6 +374,7 @@ export async function regenerateSegment(
     state.segments,
     crossfadeDuration,
     fadeCurve,
+    rConfig.trimSilence ?? true,
     callbacks
   );
 
@@ -450,6 +460,7 @@ export async function regenerateSentence(
     state.segments,
     crossfadeDuration,
     fadeCurve,
+    rConfig.trimSilence ?? true,
     callbacks
   );
 

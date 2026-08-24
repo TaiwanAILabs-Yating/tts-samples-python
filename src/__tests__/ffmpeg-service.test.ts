@@ -35,7 +35,10 @@ const {
   preloadFFmpeg,
   terminateFFmpeg,
   computeConcatTimeout,
+  buildConcatFilterComplex,
   CONCAT_BATCH_SIZE,
+  TRIM_SILENCE_THRESHOLD_DB,
+  TRIM_SILENCE_KEEP_SEC,
 } = await import("../services/ffmpeg-service");
 type ConcatProgress = import("../services/ffmpeg-service").ConcatProgress;
 
@@ -234,6 +237,109 @@ describe("concatWavsWithCrossfade", () => {
       { phase: "pass1", current: 0, total: 1, progress: 1 },
       { phase: "done", current: 1, total: 1, progress: 1 },
     ]);
+  });
+});
+
+describe("buildConcatFilterComplex", () => {
+  const base = { crossfadeDuration: 0.05, fadeCurve: "hsin" as const };
+
+  it("builds simple crossfade for 2 inputs without trim", () => {
+    expect(buildConcatFilterComplex(2, base)).toBe(
+      "[0][1]acrossfade=d=0.05:c1=hsin:c2=hsin",
+    );
+  });
+
+  it("chains crossfades for 4 inputs without trim", () => {
+    expect(buildConcatFilterComplex(4, base)).toBe(
+      "[0][1]acrossfade=d=0.05:c1=hsin:c2=hsin[a0];" +
+        "[a0][2]acrossfade=d=0.05:c1=hsin:c2=hsin[a1];" +
+        "[a1][3]acrossfade=d=0.05:c1=hsin:c2=hsin",
+    );
+  });
+
+  it("prepends per-input silenceremove when trim is enabled (2 inputs)", () => {
+    const trim = { thresholdDb: -50, keepSec: 0.1 };
+    const sr =
+      "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.1:" +
+      "stop_periods=1:stop_threshold=-50dB:stop_silence=0.1:detection=rms";
+    expect(buildConcatFilterComplex(2, { ...base, trim })).toBe(
+      `[0]${sr}[s0];[1]${sr}[s1];[s0][s1]acrossfade=d=0.05:c1=hsin:c2=hsin`,
+    );
+  });
+
+  it("prepends per-input silenceremove when trim is enabled (3 inputs)", () => {
+    const trim = { thresholdDb: -50, keepSec: 0.1 };
+    const out = buildConcatFilterComplex(3, { ...base, trim });
+    expect(out).toContain("[0]silenceremove");
+    expect(out).toContain("[1]silenceremove");
+    expect(out).toContain("[2]silenceremove");
+    expect(out).toContain("[s0][s1]acrossfade=d=0.05:c1=hsin:c2=hsin[a0]");
+    expect(out).toContain("[a0][s2]acrossfade=d=0.05:c1=hsin:c2=hsin");
+    expect(out.match(/silenceremove/g)).toHaveLength(3);
+  });
+
+  it("uses provided trim parameters in the filter", () => {
+    const out = buildConcatFilterComplex(2, {
+      ...base,
+      trim: { thresholdDb: -40, keepSec: 0.2 },
+    });
+    expect(out).toContain("start_threshold=-40dB");
+    expect(out).toContain("stop_threshold=-40dB");
+    expect(out).toContain("start_silence=0.2");
+    expect(out).toContain("stop_silence=0.2");
+  });
+
+  it("respects crossfade duration and curve", () => {
+    expect(buildConcatFilterComplex(2, { crossfadeDuration: 0.1, fadeCurve: "tri" })).toBe(
+      "[0][1]acrossfade=d=0.1:c1=tri:c2=tri",
+    );
+  });
+
+  it("exports default trim constants", () => {
+    expect(TRIM_SILENCE_THRESHOLD_DB).toBe(-50);
+    expect(TRIM_SILENCE_KEEP_SEC).toBe(0.1);
+  });
+});
+
+describe("concatWavsWithCrossfade with trimSilence", () => {
+  beforeEach(() => {
+    mockExec.mockClear();
+  });
+
+  const buffers = (n: number) => Array.from({ length: n }, () => new ArrayBuffer(8));
+
+  it("includes silenceremove in filter_complex when trimSilence is true", async () => {
+    await concatWavsWithCrossfade(buffers(3), 0.05, "hsin", undefined, {
+      trimSilence: true,
+    });
+    const args = mockExec.mock.calls[0][0] as string[];
+    const filter = args[args.indexOf("-filter_complex") + 1];
+    expect(filter.match(/silenceremove/g)).toHaveLength(3);
+    expect(filter).toContain(`start_threshold=${TRIM_SILENCE_THRESHOLD_DB}dB`);
+    expect(filter).toContain(`start_silence=${TRIM_SILENCE_KEEP_SEC}`);
+  });
+
+  it("omits silenceremove when trimSilence is false or unset", async () => {
+    await concatWavsWithCrossfade(buffers(3), 0.05, "hsin");
+    const args = mockExec.mock.calls[0][0] as string[];
+    const filter = args[args.indexOf("-filter_complex") + 1];
+    expect(filter).not.toContain("silenceremove");
+  });
+
+  it("applies trim only in pass1, not pass2, for hierarchical concat", async () => {
+    await concatWavsWithCrossfade(buffers(CONCAT_BATCH_SIZE + 1), 0.05, "hsin", undefined, {
+      trimSilence: true,
+    });
+    // Pass 1: batch of 50 (1 exec; leftover single-file batch needs no exec) + Pass 2: 1 exec
+    expect(mockExec).toHaveBeenCalledTimes(2);
+    const pass1Filter = (mockExec.mock.calls[0][0] as string[]).find((a: string) =>
+      a.includes("acrossfade"),
+    )!;
+    const pass2Filter = (mockExec.mock.calls[1][0] as string[]).find((a: string) =>
+      a.includes("acrossfade"),
+    )!;
+    expect(pass1Filter).toContain("silenceremove");
+    expect(pass2Filter).not.toContain("silenceremove");
   });
 });
 

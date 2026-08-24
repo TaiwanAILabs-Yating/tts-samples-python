@@ -142,6 +142,7 @@ describe("generateAll", () => {
       0.05,
       "tri",
       expect.any(Function),
+      { trimSilence: true },
     );
   });
 
@@ -237,6 +238,7 @@ describe("generateAll", () => {
       0.1,
       "hsin",
       expect.any(Function),
+      { trimSilence: true },
     );
   });
 

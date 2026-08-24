@@ -56,6 +56,8 @@ export interface ProjectConfig {
   fadeCurve: FadeCurve;
   startSilence: number;
   endSilence: number;
+  /** 合併時修剪各 segment 頭尾靜音（silenceremove）。預設 ON；舊設定缺欄位時以 `?? true` 讀取。 */
+  trimSilence: boolean;
 }
 
 // --- Saved project snapshot (excludes audio blobs for serialisation) ---
@@ -146,6 +148,7 @@ const defaultConfig: ProjectConfig = {
   fadeCurve: "hsin",
   startSilence: 0.3,
   endSilence: 0.3,
+  trimSilence: true,
 };
 
 function generateId(): string {
