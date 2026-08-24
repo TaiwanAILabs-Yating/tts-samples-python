@@ -130,6 +130,7 @@ export function useGeneration() {
             retryBaseDelay: config.retryBaseDelay,
             crossfadeDuration: config.crossfadeDuration,
             fadeCurve: config.fadeCurve,
+            trimSilence: config.trimSilence ?? true,
             startSilence: config.startSilence,
             endSilence: config.endSilence,
             skipConcat,
@@ -194,6 +195,7 @@ export function useGeneration() {
             retryBaseDelay: config.retryBaseDelay,
             crossfadeDuration: config.crossfadeDuration,
             fadeCurve: config.fadeCurve,
+            trimSilence: config.trimSilence ?? true,
             config: ttsConfig.current,
           },
           callbacks
@@ -259,6 +261,7 @@ export function useGeneration() {
             retryBaseDelay: config.retryBaseDelay,
             crossfadeDuration: config.crossfadeDuration,
             fadeCurve: config.fadeCurve,
+            trimSilence: config.trimSilence ?? true,
             config: ttsConfig.current,
           },
           callbacks
@@ -344,6 +347,7 @@ export function useGeneration() {
           config.crossfadeDuration ?? 0.05,
           config.fadeCurve ?? "tri",
           { onConcatProgress: (info) => setConcatProgress(info) },
+          config.trimSilence ?? true,
         );
         updateSentence(sentenceIndex, { pipeline: updatedPipeline });
         return true;

@@ -2,8 +2,13 @@ import type { TtsConfig } from "../config/index";
 import type { ConcatProgress, FadeCurve } from "./ffmpeg-service";
 import type { ZeroShotRequest } from "./tts-client";
 import { sendZeroShotRequest, uploadPromptVoice } from "./tts-client";
-import { concatWavsWithCrossfade, padAudioWithSilence } from "./ffmpeg-service";
-import { getWavDuration } from "../utils/audio";
+import {
+  concatWavsWithCrossfade,
+  padAudioWithSilence,
+  TRIM_SILENCE_THRESHOLD_DB,
+  TRIM_SILENCE_KEEP_SEC,
+} from "./ffmpeg-service";
+import { getWavDuration, estimateTrimmedWavDuration } from "../utils/audio";
 import { generateWithRetry, generateBatch } from "./batch-generator";
 import { logger } from "../utils/logger";
 
@@ -31,6 +36,13 @@ export interface SegmentState {
   status: SegmentStatus;
   audio?: ArrayBuffer;
   duration?: number;
+  /**
+   * Measured duration this audio would have after silenceremove head/tail
+   * trimming. Recorded whenever audio is generated, independent of the
+   * trimSilence setting — consumers decide whether to use it (see
+   * utils/segment-timeline). Display-only; never sent to TTS.
+   */
+  trimmedDuration?: number;
   error?: string;
   attempts: number;
   history: HistoryEntry[];
@@ -60,6 +72,8 @@ export interface GenerateAllConfig {
   retryBaseDelay?: number;
   crossfadeDuration?: number;
   fadeCurve?: FadeCurve;
+  /** Trim leading/trailing silence of each segment before crossfade (default ON). */
+  trimSilence?: boolean;
   startSilence?: number;
   endSilence?: number;
   /** Skip auto-concat after generation; caller must invoke concatOnly() later. */
@@ -77,6 +91,8 @@ export interface RegenerateConfig {
   retryBaseDelay?: number;
   crossfadeDuration?: number;
   fadeCurve?: FadeCurve;
+  /** Trim leading/trailing silence of each segment before crossfade (default ON). */
+  trimSilence?: boolean;
   config: TtsConfig;
 }
 
@@ -101,6 +117,25 @@ function buildTtsText(segment: SegmentState): string {
   return segment.wordSegmentation
     .map((ws) => (ws.useTailo ? ws.tailo : ws.word))
     .join("");
+}
+
+/**
+ * Record both duration metrics for freshly generated segment audio.
+ *
+ * `duration` is the standalone segment's length (what the segment card shows
+ * and what an individual segment download contains). `trimmedDuration` is a
+ * pure measurement of what silenceremove would leave — recorded here rather
+ * than at concat time so it is available no matter which concat path runs
+ * (or whether concat runs at all, e.g. skipConcat sentences). Whether a
+ * timeline uses it is decided at read time by the current trimSilence setting.
+ */
+function applyAudioMetrics(segment: SegmentState, audio: ArrayBuffer): void {
+  segment.duration = getWavDuration(audio);
+  segment.trimmedDuration = estimateTrimmedWavDuration(
+    audio,
+    TRIM_SILENCE_THRESHOLD_DB,
+    TRIM_SILENCE_KEEP_SEC,
+  );
 }
 
 function buildSegmentStates(inputs: SegmentInput[]): SegmentState[] {
@@ -128,6 +163,7 @@ async function recombineOutputs(
   segments: SegmentState[],
   crossfadeDuration: number,
   fadeCurve: FadeCurve,
+  trimSilence: boolean,
   callbacks?: OrchestratorCallbacks
 ): Promise<{ concatenatedAudio?: ArrayBuffer }> {
   const successSegments = segments.filter(
@@ -148,6 +184,7 @@ async function recombineOutputs(
       crossfadeDuration,
       fadeCurve,
       (info) => callbacks?.onConcatProgress?.(info),
+      { trimSilence },
     );
     callbacks?.onConcatComplete?.(concatenatedAudio);
     logger.orchestrator.info("Concat complete");
@@ -239,7 +276,7 @@ export async function generateAll(
       if (result.success && result.data) {
         segment.status = "success";
         segment.audio = result.data;
-        segment.duration = getWavDuration(result.data);
+        applyAudioMetrics(segment, result.data);
         segment.attempts = result.attempts;
       } else {
         segment.status = "error";
@@ -270,6 +307,7 @@ export async function generateAll(
     segments,
     crossfadeDuration,
     fadeCurve,
+    config.trimSilence ?? true,
     callbacks
   );
 
@@ -287,11 +325,13 @@ export async function concatOnly(
   crossfadeDuration: number = 0.05,
   fadeCurve: FadeCurve = "tri",
   callbacks?: OrchestratorCallbacks,
+  trimSilence: boolean = true,
 ): Promise<PipelineState> {
   const { concatenatedAudio } = await recombineOutputs(
     state.segments,
     crossfadeDuration,
     fadeCurve,
+    trimSilence,
     callbacks,
   );
   return { ...state, concatenatedAudio };
@@ -344,7 +384,7 @@ export async function regenerateSegment(
   if (result.success && result.data) {
     segment.status = "success";
     segment.audio = result.data;
-    segment.duration = getWavDuration(result.data);
+    applyAudioMetrics(segment, result.data);
     segment.attempts = result.attempts;
   } else {
     segment.status = "error";
@@ -365,6 +405,7 @@ export async function regenerateSegment(
     state.segments,
     crossfadeDuration,
     fadeCurve,
+    rConfig.trimSilence ?? true,
     callbacks
   );
 
@@ -421,7 +462,7 @@ export async function regenerateSentence(
       if (result.success && result.data) {
         segment.status = "success";
         segment.audio = result.data;
-        segment.duration = getWavDuration(result.data);
+        applyAudioMetrics(segment, result.data);
         segment.attempts = result.attempts;
       } else {
         segment.status = "error";
@@ -450,6 +491,7 @@ export async function regenerateSentence(
     state.segments,
     crossfadeDuration,
     fadeCurve,
+    rConfig.trimSilence ?? true,
     callbacks
   );
 

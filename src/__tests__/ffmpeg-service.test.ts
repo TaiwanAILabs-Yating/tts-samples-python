@@ -35,7 +35,10 @@ const {
   preloadFFmpeg,
   terminateFFmpeg,
   computeConcatTimeout,
+  buildConcatFilterComplex,
   CONCAT_BATCH_SIZE,
+  TRIM_SILENCE_THRESHOLD_DB,
+  TRIM_SILENCE_KEEP_SEC,
 } = await import("../services/ffmpeg-service");
 type ConcatProgress = import("../services/ffmpeg-service").ConcatProgress;
 
@@ -234,6 +237,152 @@ describe("concatWavsWithCrossfade", () => {
       { phase: "pass1", current: 0, total: 1, progress: 1 },
       { phase: "done", current: 1, total: 1, progress: 1 },
     ]);
+  });
+});
+
+describe("buildConcatFilterComplex", () => {
+  const base = { crossfadeDuration: 0.05, fadeCurve: "hsin" as const };
+
+  it("builds simple crossfade for 2 inputs without trim", () => {
+    expect(buildConcatFilterComplex(2, base)).toBe(
+      "[0][1]acrossfade=d=0.05:c1=hsin:c2=hsin",
+    );
+  });
+
+  it("chains crossfades for 4 inputs without trim", () => {
+    expect(buildConcatFilterComplex(4, base)).toBe(
+      "[0][1]acrossfade=d=0.05:c1=hsin:c2=hsin[a0];" +
+        "[a0][2]acrossfade=d=0.05:c1=hsin:c2=hsin[a1];" +
+        "[a1][3]acrossfade=d=0.05:c1=hsin:c2=hsin",
+    );
+  });
+
+  it("prepends per-input head+tail silenceremove when trim is enabled (2 inputs)", () => {
+    const trim = { thresholdDb: -50, keepSec: 0.1 };
+    const head =
+      "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.1:detection=rms";
+    // Tail trim uses areverse + head-trim + areverse: positive stop_periods
+    // truncates at the FIRST internal pause, so it must never be used here.
+    const sr = `${head},areverse,${head},areverse`;
+    expect(buildConcatFilterComplex(2, { ...base, trim })).toBe(
+      `[0]${sr}[s0];[1]${sr}[s1];[s0][s1]acrossfade=d=0.05:c1=hsin:c2=hsin`,
+    );
+  });
+
+  it("builds a trim-only chain for a single input", () => {
+    const head =
+      "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.1:detection=rms";
+    expect(
+      buildConcatFilterComplex(1, { ...base, trim: { thresholdDb: -50, keepSec: 0.1 } }),
+    ).toBe(`[0]${head},areverse,${head},areverse`);
+  });
+
+  it("returns an empty filter for a single input with no trim", () => {
+    expect(buildConcatFilterComplex(1, base)).toBe("");
+  });
+
+  it("never uses stop_periods (truncates at first internal pause)", () => {
+    const out = buildConcatFilterComplex(3, {
+      ...base,
+      trim: { thresholdDb: -50, keepSec: 0.1 },
+    });
+    expect(out).not.toContain("stop_periods");
+    expect(out.match(/areverse/g)).toHaveLength(6);
+  });
+
+  it("prepends per-input silenceremove when trim is enabled (3 inputs)", () => {
+    const trim = { thresholdDb: -50, keepSec: 0.1 };
+    const out = buildConcatFilterComplex(3, { ...base, trim });
+    expect(out).toContain("[0]silenceremove");
+    expect(out).toContain("[1]silenceremove");
+    expect(out).toContain("[2]silenceremove");
+    expect(out).toContain("[s0][s1]acrossfade=d=0.05:c1=hsin:c2=hsin[a0]");
+    expect(out).toContain("[a0][s2]acrossfade=d=0.05:c1=hsin:c2=hsin");
+    expect(out.match(/silenceremove/g)).toHaveLength(6);
+  });
+
+  it("uses provided trim parameters in the filter", () => {
+    const out = buildConcatFilterComplex(2, {
+      ...base,
+      trim: { thresholdDb: -40, keepSec: 0.2 },
+    });
+    expect(out).toContain("start_threshold=-40dB");
+    expect(out).toContain("start_silence=0.2");
+    expect(out).not.toContain("stop_threshold");
+  });
+
+  it("respects crossfade duration and curve", () => {
+    expect(buildConcatFilterComplex(2, { crossfadeDuration: 0.1, fadeCurve: "tri" })).toBe(
+      "[0][1]acrossfade=d=0.1:c1=tri:c2=tri",
+    );
+  });
+
+  it("exports default trim constants", () => {
+    expect(TRIM_SILENCE_THRESHOLD_DB).toBe(-50);
+    expect(TRIM_SILENCE_KEEP_SEC).toBe(0.1);
+  });
+});
+
+describe("concatWavsWithCrossfade with trimSilence", () => {
+  beforeEach(() => {
+    mockExec.mockClear();
+  });
+
+  const buffers = (n: number) => Array.from({ length: n }, () => new ArrayBuffer(8));
+
+  it("includes silenceremove in filter_complex when trimSilence is true", async () => {
+    await concatWavsWithCrossfade(buffers(3), 0.05, "hsin", undefined, {
+      trimSilence: true,
+    });
+    const args = mockExec.mock.calls[0][0] as string[];
+    const filter = args[args.indexOf("-filter_complex") + 1];
+    expect(filter.match(/silenceremove/g)).toHaveLength(6);
+    expect(filter).toContain(`start_threshold=${TRIM_SILENCE_THRESHOLD_DB}dB`);
+    expect(filter).toContain(`start_silence=${TRIM_SILENCE_KEEP_SEC}`);
+  });
+
+  it("omits silenceremove when trimSilence is false or unset", async () => {
+    await concatWavsWithCrossfade(buffers(3), 0.05, "hsin");
+    const args = mockExec.mock.calls[0][0] as string[];
+    const filter = args[args.indexOf("-filter_complex") + 1];
+    expect(filter).not.toContain("silenceremove");
+  });
+
+  it("applies trim only in pass1, not pass2, for hierarchical concat", async () => {
+    await concatWavsWithCrossfade(buffers(CONCAT_BATCH_SIZE + 1), 0.05, "hsin", undefined, {
+      trimSilence: true,
+    });
+    // Pass 1: batch of 50 + leftover single-file batch (trimmed on its own) + Pass 2
+    expect(mockExec).toHaveBeenCalledTimes(3);
+    const filterOf = (call: number) => {
+      const args = mockExec.mock.calls[call][0] as string[];
+      return args[args.indexOf("-filter_complex") + 1];
+    };
+    expect(filterOf(0)).toContain("silenceremove");
+    // Leftover single segment is still an original segment → must be trimmed,
+    // otherwise its trimmedDuration would not match its audio.
+    expect(filterOf(1)).toContain("silenceremove");
+    expect(filterOf(1)).not.toContain("acrossfade");
+    expect(filterOf(2)).not.toContain("silenceremove");
+  });
+
+  it("trims a lone segment instead of returning it untouched", async () => {
+    const out = await concatWavsWithCrossfade(buffers(1), 0.05, "hsin", undefined, {
+      trimSilence: true,
+    });
+    expect(mockExec).toHaveBeenCalledOnce();
+    const args = mockExec.mock.calls[0][0] as string[];
+    const filter = args[args.indexOf("-filter_complex") + 1];
+    expect(filter).toContain("silenceremove");
+    expect(filter).not.toContain("acrossfade");
+    expect(out).toBeInstanceOf(ArrayBuffer);
+  });
+
+  it("returns a lone segment untouched when trimming is off", async () => {
+    const input = buffers(1);
+    const out = await concatWavsWithCrossfade(input, 0.05, "hsin");
+    expect(mockExec).not.toHaveBeenCalled();
+    expect(out).toBe(input[0]);
   });
 });
 

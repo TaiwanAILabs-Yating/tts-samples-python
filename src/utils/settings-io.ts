@@ -18,6 +18,7 @@ interface SettingsExport {
   retryBaseDelay: number;
   crossfadeDuration: number;
   fadeCurve: string;
+  trimSilence?: boolean;
   startSilence: number;
   endSilence: number;
 }
@@ -68,6 +69,7 @@ export async function exportSettings(config: ProjectConfig): Promise<void> {
     retryBaseDelay: config.retryBaseDelay,
     crossfadeDuration: config.crossfadeDuration,
     fadeCurve: config.fadeCurve,
+    trimSilence: config.trimSilence ?? true,
     startSilence: config.startSilence,
     endSilence: config.endSilence,
   };
@@ -108,6 +110,7 @@ export async function importSettings(file: File): Promise<Partial<ProjectConfig>
   if (data.retryBaseDelay != null) result.retryBaseDelay = data.retryBaseDelay;
   if (data.crossfadeDuration != null) result.crossfadeDuration = data.crossfadeDuration;
   if (data.fadeCurve != null) result.fadeCurve = data.fadeCurve as ProjectConfig["fadeCurve"];
+  if (data.trimSilence != null) result.trimSilence = data.trimSilence;
   if (data.startSilence != null) result.startSilence = data.startSilence;
   if (data.endSilence != null) result.endSilence = data.endSilence;
 

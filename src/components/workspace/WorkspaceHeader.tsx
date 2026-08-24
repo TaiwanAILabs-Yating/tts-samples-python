@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useProjectStore, type SentenceStatus } from "../../stores/project-store.ts";
+import { computeMergedTimeline } from "../../utils/segment-timeline.ts";
 
 const STATUS_STYLE: Record<SentenceStatus, { bg: string; text: string; label: string }> = {
   pending: { bg: "#6B72801A", text: "#6B7280", label: "Pending" },
@@ -21,16 +22,23 @@ export function WorkspaceHeader({ canApproveReject, onApprove }: WorkspaceHeader
   const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
   const updateSentence = useProjectStore((s) => s.updateSentence);
   const projectName = useProjectStore((s) => s.projectName);
+  const crossfadeDuration = useProjectStore((s) => s.config.crossfadeDuration);
+  const trimSilence = useProjectStore((s) => s.config.trimSilence ?? true);
   const [expanded, setExpanded] = useState(false);
 
   const sentence = sentences[selectedIndex];
   if (!sentence) return null;
 
   const statusCfg = STATUS_STYLE[sentence.status];
-  const totalDuration = sentence.pipeline?.segments
-    .filter((s) => s.duration != null)
-    .reduce((sum, s) => sum + s.duration!, 0);
-  const durStr = totalDuration != null && totalDuration > 0 ? `${totalDuration.toFixed(2)}s` : "--";
+  // Duration of the merged sentence audio (silence-trim + crossfade aware).
+  const totalDuration = sentence.pipeline
+    ? computeMergedTimeline(
+        sentence.pipeline.segments,
+        crossfadeDuration,
+        trimSilence,
+      ).totalDuration
+    : 0;
+  const durStr = totalDuration > 0 ? `${totalDuration.toFixed(2)}s` : "--";
 
   const isGenerating = sentence.status === "generating";
   const isApproved = sentence.status === "approved";

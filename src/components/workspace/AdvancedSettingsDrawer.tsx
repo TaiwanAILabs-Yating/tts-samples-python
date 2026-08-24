@@ -1,5 +1,9 @@
 import { useProjectStore } from "../../stores/project-store.ts";
-import type { FadeCurve } from "../../services/ffmpeg-service.ts";
+import {
+  TRIM_SILENCE_THRESHOLD_DB,
+  TRIM_SILENCE_KEEP_SEC,
+  type FadeCurve,
+} from "../../services/ffmpeg-service.ts";
 
 const FADE_CURVES: { value: FadeCurve; label: string }[] = [
   { value: "tri", label: "Triangular (tri)" },
@@ -20,6 +24,17 @@ function SectionTitle({ icon, label }: { icon: React.ReactNode; label: string })
 
 function Divider() {
   return <div className="h-px bg-bg-secondary" />;
+}
+
+function SubsectionLabel({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 pt-1.5">
+      <span className="text-[11px] font-semibold tracking-widest text-text-muted">
+        {label}
+      </span>
+      <div className="flex-1 h-px bg-border" />
+    </div>
+  );
 }
 
 function NumberField({
@@ -162,20 +177,15 @@ export function AdvancedSettingsDrawer() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-6">
-          {/* --- Audio Generation --- */}
+          {/* --- Service --- */}
           <section className="flex flex-col gap-3">
             <SectionTitle
               icon={
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M2 10v3" /><path d="M6 6v11" /><path d="M10 3v18" /><path d="M14 8v7" /><path d="M18 5v13" /><path d="M22 10v3" />
+                  <rect x="2" y="2" width="20" height="8" rx="2" /><rect x="2" y="14" width="20" height="8" rx="2" /><path d="M6 6h.01" /><path d="M6 18h.01" />
                 </svg>
               }
-              label="Audio Generation"
-            />
-            <Toggle
-              label="Add End Silence Token"
-              checked={config.addEndSilence}
-              onChange={(v) => updateConfig({ addEndSilence: v })}
+              label="Service"
             />
             <div className="flex gap-4">
               <NumberField
@@ -216,7 +226,7 @@ export function AdvancedSettingsDrawer() {
                   <path d="M16 9a5 5 0 0 1-6 0" /><path d="M2 2l20 20" /><path d="M11 5V3a1 1 0 0 1 2 0v2" /><path d="M19 13c0-1.3-.6-2.5-1.5-3.5" /><path d="M6.5 9.5C5.6 10.5 5 11.7 5 13v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1" /><path d="M8 21h8" /><path d="M12 17v4" />
                 </svg>
               }
-              label="Silence Padding"
+              label="Input — Prompt Voice"
             />
             <p className="text-xs text-text-muted">
               Add silence padding before and after the prompt voice audio.
@@ -243,16 +253,22 @@ export function AdvancedSettingsDrawer() {
 
           <Divider />
 
-          {/* --- Crossfade --- */}
+          {/* --- Output — Segment Audio --- */}
           <section className="flex flex-col gap-3">
             <SectionTitle
               icon={
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="9" cy="12" r="7" /><circle cx="15" cy="12" r="7" />
+                  <path d="M2 10v3" /><path d="M6 6v11" /><path d="M10 3v18" /><path d="M14 8v7" /><path d="M18 5v13" /><path d="M22 10v3" />
                 </svg>
               }
-              label="Crossfade"
+              label="Output — Segment Audio"
             />
+            <Toggle
+              label="Add End Silence Token"
+              checked={config.addEndSilence}
+              onChange={(v) => updateConfig({ addEndSilence: v })}
+            />
+            <SubsectionLabel label="CROSSFADE" />
             <SliderField
               label="Duration"
               value={config.crossfadeDuration}
@@ -280,6 +296,16 @@ export function AdvancedSettingsDrawer() {
                 ))}
               </select>
             </div>
+            <SubsectionLabel label="SILENCE REMOVAL" />
+            <Toggle
+              label="Trim Segment Silence"
+              checked={config.trimSilence ?? true}
+              onChange={(v) => updateConfig({ trimSilence: v })}
+            />
+            <p className="text-xs text-text-muted">
+              合併時先修剪各 segment 頭尾靜音（門檻 {TRIM_SILENCE_THRESHOLD_DB}dB、保留{" "}
+              {TRIM_SILENCE_KEEP_SEC}s）再 crossfade。
+            </p>
           </section>
 
         </div>
