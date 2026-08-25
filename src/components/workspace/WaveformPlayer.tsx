@@ -8,6 +8,7 @@ import {
   useImperativeHandle,
 } from "react";
 import { useProjectStore } from "../../stores/project-store.ts";
+import { computeMergedTimeline } from "../../utils/segment-timeline.ts";
 import { useAudioPlayer, type SegmentRange } from "../../hooks/useAudioPlayer.ts";
 
 export interface WaveformPlayerHandle {
@@ -71,6 +72,8 @@ export const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerPro
   function WaveformPlayer({ onCurrentSegmentChange }, ref) {
   const sentences = useProjectStore((s) => s.sentences);
   const selectedIndex = useProjectStore((s) => s.selectedSentenceIndex);
+  const crossfadeDuration = useProjectStore((s) => s.config.crossfadeDuration);
+  const trimSilence = useProjectStore((s) => s.config.trimSilence ?? true);
   const sentence = sentences[selectedIndex];
   const pipeline = sentence?.pipeline;
 
@@ -87,22 +90,19 @@ export const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerPro
 
   const player = useAudioPlayer();
 
-  // Compute segment ranges from pipeline data
+  // Segment boundaries inside the merged audio — silence-trim and crossfade
+  // overlap aware. Shared with the duration badges and metadata.json export.
   const segmentRanges: SegmentRange[] = useMemo(() => {
-    if (!pipeline?.segments) return [];
-    const ranges: SegmentRange[] = [];
-    let offset = 0;
-    for (const seg of pipeline.segments) {
-      const dur = seg.duration ?? 0;
-      ranges.push({
-        startTime: offset,
-        endTime: offset + dur,
-        text: seg.text,
-      });
-      offset += dur;
-    }
-    return ranges;
-  }, [pipeline?.segments]);
+    const segs = pipeline?.segments;
+    if (!segs) return [];
+    return computeMergedTimeline(segs, crossfadeDuration, trimSilence).spans.map(
+      (span) => ({
+        startTime: span.start,
+        endTime: span.end,
+        text: segs[span.index].text,
+      }),
+    );
+  }, [pipeline?.segments, crossfadeDuration, trimSilence]);
 
   // Report current segment index to parent
   const prevSegIdxRef = useRef(-1);

@@ -157,6 +157,85 @@ import { MAX_SEGMENTS_PER_SENTENCE } from "../utils/preprocessing";
  */
 export const CONCAT_BATCH_SIZE = MAX_SEGMENTS_PER_SENTENCE;
 
+/** silenceremove 預設門檻（dB）。UI 不曝露，記錄於 metadata.json。 */
+export const TRIM_SILENCE_THRESHOLD_DB = -50;
+/** silenceremove 修剪後保留的靜音長度（秒）。需 > crossfade duration，保證 acrossfade 有材料。 */
+export const TRIM_SILENCE_KEEP_SEC = 0.1;
+
+export interface TrimSilenceParams {
+  thresholdDb: number;
+  keepSec: number;
+}
+
+export interface ConcatFilterOptions {
+  crossfadeDuration: number;
+  fadeCurve: FadeCurve;
+  /** When set, each input is passed through silenceremove before the acrossfade chain. */
+  trim?: TrimSilenceParams;
+}
+
+export interface ConcatOptions {
+  /** Trim leading/trailing silence of each original segment before crossfade. */
+  trimSilence?: boolean;
+}
+
+/**
+ * Build the filter_complex string for concatenating `n` inputs with acrossfade,
+ * optionally trimming each input's leading/trailing silence first.
+ * Pure function — unit-tested separately from FFmpeg execution.
+ */
+export function buildConcatFilterComplex(
+  n: number,
+  { crossfadeDuration: d, fadeCurve, trim }: ConcatFilterOptions,
+): string {
+  const c1 = fadeCurve;
+  const c2 = fadeCurve;
+  const filters: string[] = [];
+
+  const src = (i: number): string => {
+    if (!trim) return `[${i}]`;
+    return `[s${i}]`;
+  };
+
+  if (trim) {
+    // Head trim: skip leading silence, keep `keepSec` of it.
+    // Tail trim: areverse + head-trim + areverse. Positive stop_periods must
+    // NOT be used — it stops copying at the FIRST silence period (with
+    // stop_duration defaulting to 0), so any mid-segment pause would truncate
+    // everything after it (segments audibly vanished from merged audio).
+    const head =
+      `silenceremove=start_periods=1:start_threshold=${trim.thresholdDb}dB:` +
+      `start_silence=${trim.keepSec}:detection=rms`;
+    const sr = `${head},areverse,${head},areverse`;
+    for (let i = 0; i < n; i++) {
+      // n === 1 needs an unlabeled output so FFmpeg auto-maps it.
+      filters.push(n === 1 ? `[${i}]${sr}` : `[${i}]${sr}[s${i}]`);
+    }
+  }
+
+  if (n === 1) {
+    // A lone input has no joint to crossfade — the trim chain (if any) is the
+    // whole filter. Trimming must still apply so the segment's trimmedDuration
+    // keeps matching its audio.
+    return trim ? filters[0] : "";
+  }
+
+  if (n === 2) {
+    filters.push(`${src(0)}${src(1)}acrossfade=d=${d}:c1=${c1}:c2=${c2}`);
+  } else {
+    for (let i = 0; i < n - 1; i++) {
+      if (i === 0) {
+        filters.push(`${src(0)}${src(1)}acrossfade=d=${d}:c1=${c1}:c2=${c2}[a0]`);
+      } else if (i === n - 2) {
+        filters.push(`[a${i - 1}]${src(i + 1)}acrossfade=d=${d}:c1=${c1}:c2=${c2}`);
+      } else {
+        filters.push(`[a${i - 1}]${src(i + 1)}acrossfade=d=${d}:c1=${c1}:c2=${c2}[a${i}]`);
+      }
+    }
+  }
+  return filters.join(";");
+}
+
 /** Compute concat exec timeout: base 30s + 2s per file, capped at 5min. */
 export function computeConcatTimeout(n: number): number {
   return Math.min(5 * 60 * 1000, 30_000 + n * 2_000);
@@ -186,6 +265,9 @@ export interface ConcatProgress {
  * @param crossfadeDuration - Crossfade duration in seconds (default: 0.05)
  * @param fadeCurve - Fade curve type (default: "tri")
  * @param onProgress - Optional callback for batch / pass progress
+ * @param options - trimSilence: trim each original segment's leading/trailing
+ *   silence (silenceremove) before crossfade. Applied only to original
+ *   segments (direct path / Pass 1), never to Pass 2 intermediates.
  * @returns Concatenated audio as ArrayBuffer (WAV)
  */
 export async function concatWavsWithCrossfade(
@@ -193,12 +275,17 @@ export async function concatWavsWithCrossfade(
   crossfadeDuration: number = 0.05,
   fadeCurve: FadeCurve = "tri",
   onProgress?: (info: ConcatProgress) => void,
+  options?: ConcatOptions,
 ): Promise<ArrayBuffer> {
+  const trim: TrimSilenceParams | undefined = options?.trimSilence
+    ? { thresholdDb: TRIM_SILENCE_THRESHOLD_DB, keepSec: TRIM_SILENCE_KEEP_SEC }
+    : undefined;
   if (audioBuffers.length === 0) {
     throw new Error("No audio files to concatenate");
   }
 
-  if (audioBuffers.length === 1) {
+  // A lone segment still needs a pass when trimming applies.
+  if (audioBuffers.length === 1 && !trim) {
     return audioBuffers[0];
   }
 
@@ -216,6 +303,7 @@ export async function concatWavsWithCrossfade(
       "crossfade",
       (progress) =>
         onProgress?.({ phase: "pass1", current: 0, total: 1, progress }),
+      trim,
     );
     onProgress?.({ phase: "done", current: 1, total: 1, progress: 1 });
     return final;
@@ -246,6 +334,7 @@ export async function concatWavsWithCrossfade(
             total: batches.length,
             progress,
           }),
+        trim,
       ),
     );
     // Release the per-batch slice held by the local `batches` array.
@@ -287,9 +376,11 @@ async function concatBatch(
   fadeCurve: FadeCurve,
   label: string,
   onProgress?: (progress: number) => void,
+  trim?: TrimSilenceParams,
 ): Promise<ArrayBuffer> {
-  // A leftover single-file batch (N % 50 === 1 in pass 1) needs no FFmpeg call.
-  if (audioBuffers.length === 1) {
+  // A leftover single-file batch (N % 50 === 1 in pass 1) needs no FFmpeg call
+  // unless it still has to be trimmed.
+  if (audioBuffers.length === 1 && !trim) {
     onProgress?.(1);
     return audioBuffers[0];
   }
@@ -316,30 +407,11 @@ async function concatBatch(
     }
 
     // Build filter_complex
-    const d = crossfadeDuration;
-    const c1 = fadeCurve;
-    const c2 = fadeCurve;
-    let filterComplex: string;
-
-    if (audioBuffers.length === 2) {
-      filterComplex = `[0][1]acrossfade=d=${d}:c1=${c1}:c2=${c2}`;
-    } else {
-      const filters: string[] = [];
-      for (let i = 0; i < audioBuffers.length - 1; i++) {
-        if (i === 0) {
-          filters.push(`[0][1]acrossfade=d=${d}:c1=${c1}:c2=${c2}[a0]`);
-        } else if (i === audioBuffers.length - 2) {
-          filters.push(
-            `[a${i - 1}][${i + 1}]acrossfade=d=${d}:c1=${c1}:c2=${c2}`,
-          );
-        } else {
-          filters.push(
-            `[a${i - 1}][${i + 1}]acrossfade=d=${d}:c1=${c1}:c2=${c2}[a${i}]`,
-          );
-        }
-      }
-      filterComplex = filters.join(";");
-    }
+    const filterComplex = buildConcatFilterComplex(audioBuffers.length, {
+      crossfadeDuration,
+      fadeCurve,
+      trim,
+    });
 
     const progressHandler = ({ progress }: { progress: number; time: number }) => {
       if (Number.isFinite(progress)) {

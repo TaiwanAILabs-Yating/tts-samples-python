@@ -58,6 +58,7 @@ AILabs 基於 zero-shot 語音合成的文字轉語音工具。提供 **Web UI �
 
 #### 音訊處理
 - 交叉淡化串接（FFmpeg.wasm，瀏覽器端），消除接合處的爆音/雜訊
+- **前後靜音濾除（silenceremove）**：合併時先修剪各 segment 頭尾的靜音再交叉淡化，避免 TTS 產生的長短不一靜音造成不自然停頓。預設開啟，可於進階設定關閉
 - 階層式分批 concat：大量音檔會每 50 段先合併成中段，再合成最終音檔，降低 timeout / OOM 風險
 - Concat 進度回報：下載時會顯示目前批次與 FFmpeg 執行進度
 - 支援多種淡化曲線：tri / qsin / hsin / log / exp
@@ -204,13 +205,26 @@ npm run dev
 
 ### 進階設定
 
-點擊齒輪圖示開啟設定面板：
+點擊齒輪圖示開啟設定面板。面板依「設定作用在哪裡」分為三大區塊：
 
-| 區塊 | 設定項 |
-|------|--------|
-| 音訊生成 | 結尾靜音 token、平行 workers（1-20）、最大重試次數（0-10）、重試延遲（0.1-5s） |
-| 靜音填充 | 開頭靜音（0-1s）、結尾靜音（0-1s） |
-| 交叉淡化 | 時長（0-0.2s）、曲線類型（tri / qsin / hsin / log / exp） |
+| 區塊 | 作用對象 | 設定項 |
+|------|----------|--------|
+| **Service** | 呼叫 TTS 服務的方式 | 平行 workers（1-20）、最大重試次數（0-10）、重試延遲（0.1-5s） |
+| **Input — Prompt Voice** | 輸入的 prompt 音檔 | Prompt 開頭靜音（0-1s）、Prompt 結尾靜音（0-1s）— 對 prompt 音檔前後補靜音 |
+| **Output — Segment Audio** | 產出的 segment 音檔 | 結尾靜音 token；**Crossfade**：時長（0-0.2s）、曲線類型（tri / qsin / hsin / log / exp）；**Silence Removal**：修剪各 segment 頭尾靜音（預設開啟） |
+
+#### 靜音濾除（Silence Removal）
+
+TTS 產生的 segment 頭尾常帶有長短不一的靜音，直接交叉淡化合併會出現不自然的停頓。開啟後，合併時會先修剪每個 segment 的頭尾靜音再串接：
+
+- 判定方式：以 20ms 為單位計算音量（RMS），從兩端向內找第一個超過 **-50dB** 的區間
+- 修剪後頭尾各保留 **0.1s** 靜音，避免語音貼死在邊界，也確保交叉淡化有材料可疊
+- **句中停頓完整保留** —— 只處理真正的頭尾，字與字之間的停頓不受影響
+- 每個接點實際聽到的間隔約為 0.1 + 0.1 − 交叉淡化時長（預設 0.05s）≈ 0.15s
+- 門檻與保留長度為固定值（不開放調整），但會記錄在匯出的 `metadata.json`
+- 全案合併（`Concat all sentences`）**不做修剪**，保留句與句之間的自然停頓
+
+波形播放器的 segment 時間軸與 `metadata.json` 的 `segments[].start/end` 都會反映修剪後的實際長度，並扣除交叉淡化的重疊。
 
 ### 台語詞典預處理
 
@@ -235,10 +249,10 @@ npx tsx scripts/preprocess-lexicon.ts /path/to/lexicon.txt
    - ZIP 會固定包含 `metadata.json`
    - 若需要單一最終 WAV，請先勾選 `Concat all sentences`
    - ZIP 內的 `metadata.json` 包含：
-     - 完整的生成參數（語言、模型、分段模式等）
+     - 完整的生成參數（語言、模型、分段模式等），含靜音濾除的開關與參數
      - 每句的 status（approved / rejected）
      - 每句的 Notes 內容
-     - Segment 數量與音訊時長
+     - Segment 數量、每段文字，以及每段在合併音檔中的起迄時間（已反映靜音濾除與交叉淡化，區間不重疊）
 
 3. **回報問題**
    - **請將整包 ZIP 傳回給我們**（包含音檔 + metadata.json）

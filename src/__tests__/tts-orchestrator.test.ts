@@ -25,21 +25,25 @@ vi.mock("../services/tts-client", () => ({
 // Mock ffmpeg-service (heavy binary)
 vi.mock("../services/ffmpeg-service", () => ({
   concatWavsWithCrossfade: vi.fn(),
+  TRIM_SILENCE_THRESHOLD_DB: -50,
+  TRIM_SILENCE_KEEP_SEC: 0.1,
 }));
 
 // Mock audio.ts getWavDuration (needs real WAV headers)
 vi.mock("../utils/audio", () => ({
   getWavDuration: vi.fn(),
+  estimateTrimmedWavDuration: vi.fn(),
 }));
 
 import { sendZeroShotRequest, uploadPromptVoice } from "../services/tts-client";
 import { concatWavsWithCrossfade } from "../services/ffmpeg-service";
-import { getWavDuration } from "../utils/audio";
+import { getWavDuration, estimateTrimmedWavDuration } from "../utils/audio";
 
 const mockSendZeroShot = vi.mocked(sendZeroShotRequest);
 const mockUploadPromptVoice = vi.mocked(uploadPromptVoice);
 const mockConcatWavs = vi.mocked(concatWavsWithCrossfade);
 const mockGetWavDuration = vi.mocked(getWavDuration);
+const mockEstimateTrimmed = vi.mocked(estimateTrimmedWavDuration);
 
 // --- Helpers ---
 
@@ -98,7 +102,42 @@ describe("generateAll", () => {
     mockUploadPromptVoice.mockResolvedValue("asset-key-abc");
     mockSendZeroShot.mockResolvedValue(fakeAudio);
     mockGetWavDuration.mockReturnValue(3.5);
+    mockEstimateTrimmed.mockReturnValue(3.0);
     mockConcatWavs.mockResolvedValue(fakeConcatAudio);
+  });
+
+  it("measures trimmedDuration alongside duration for every generated segment", async () => {
+    const config = makeGenerateAllConfig({
+      segments: [{ text: "第一句" }, { text: "第二句" }],
+    });
+    const result = await generateAll(config);
+    expect(result.segments.map((s) => s.duration)).toEqual([3.5, 3.5]);
+    expect(result.segments.map((s) => s.trimmedDuration)).toEqual([3.0, 3.0]);
+  });
+
+  it("records trimmedDuration even when trimSilence is off (read-time decision)", async () => {
+    const config = makeGenerateAllConfig({
+      segments: [{ text: "第一句" }, { text: "第二句" }],
+      trimSilence: false,
+    });
+    const result = await generateAll(config);
+    // The measurement is config-independent; consumers ignore it when the
+    // setting is off, so toggling the setting needs no regeneration.
+    expect(result.segments[0].trimmedDuration).toBe(3.0);
+  });
+
+  it("leaves trimmedDuration unset on failed segments", async () => {
+    mockSendZeroShot
+      .mockResolvedValueOnce(fakeAudio)
+      .mockRejectedValueOnce(new Error("API error"));
+    const result = await generateAll(
+      makeGenerateAllConfig({
+        segments: [{ text: "成功" }, { text: "失敗" }],
+        maxRetries: 0,
+      }),
+    );
+    expect(result.segments[0].trimmedDuration).toBe(3.0);
+    expect(result.segments[1].trimmedDuration).toBeUndefined();
   });
 
   it("executes pipeline: build segments → upload → generate → concat", async () => {
@@ -142,6 +181,7 @@ describe("generateAll", () => {
       0.05,
       "tri",
       expect.any(Function),
+      { trimSilence: true },
     );
   });
 
@@ -237,6 +277,7 @@ describe("generateAll", () => {
       0.1,
       "hsin",
       expect.any(Function),
+      { trimSilence: true },
     );
   });
 

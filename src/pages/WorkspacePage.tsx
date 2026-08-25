@@ -9,7 +9,7 @@ import {
   BatchReplaceDialog,
   type BatchReplaceApplyOptions,
 } from "../components/workspace/BatchReplaceDialog.tsx";
-import { useProjectStore, type SentenceState } from "../stores/project-store.ts";
+import { useProjectStore } from "../stores/project-store.ts";
 import { useGeneration } from "../hooks/useGeneration.ts";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts.ts";
 import {
@@ -17,8 +17,8 @@ import {
   splitDirectInputIntoSentences,
   MAX_SEGMENTS_FOR_PLAYER,
 } from "../utils/preprocessing.ts";
+import { buildSentenceStates } from "../utils/sentence-builder.ts";
 import { preloadFFmpeg } from "../services/ffmpeg-service.ts";
-import type { PipelineState, SegmentState as OrcSegmentState } from "../services/tts-orchestrator.ts";
 
 export function WorkspacePage() {
   const rawText = useProjectStore((s) => s.rawText);
@@ -51,8 +51,8 @@ export function WorkspacePage() {
   const [isBatchReplaceOpen, setBatchReplaceOpen] = useState(false);
   const applyBatchReplace = useProjectStore((s) => s.applyBatchReplace);
   const handleBatchReplaceApply = useCallback(
-    ({ edits, regenerate }: BatchReplaceApplyOptions) => {
-      applyBatchReplace(edits);
+    ({ edits, regenerate, find, replaceWith }: BatchReplaceApplyOptions) => {
+      applyBatchReplace(edits, find, replaceWith);
       setBatchReplaceOpen(false);
       if (regenerate) {
         // Fire-and-forget: progress surfaces through per-segment status in the store.
@@ -121,42 +121,33 @@ export function WorkspacePage() {
   // - Upload File → each non-empty line → splitSentences → segments
   useEffect(() => {
     if (rawText && sentences.length === 0) {
-      let sentenceSegmentGroups: string[][];
-
       if (inputMode === "upload") {
         const lines = rawText
           .split("\n")
           .map((line) => line.trim())
           .filter((line) => line.length > 0);
-        sentenceSegmentGroups = lines.map((line) =>
-          splitSentences(line, config.segmentMode, config.minTokens, config.maxTokens),
+        setSentences(
+          buildSentenceStates(
+            lines.map((line) =>
+              splitSentences(line, config.segmentMode, config.minTokens, config.maxTokens),
+            ),
+            { mode: "upload", lines },
+          ),
         );
       } else {
-        sentenceSegmentGroups = splitDirectInputIntoSentences(
-          rawText.trim(),
-          config.segmentMode,
-          config.minTokens,
-          config.maxTokens,
+        const trimmed = rawText.trim();
+        setSentences(
+          buildSentenceStates(
+            splitDirectInputIntoSentences(
+              trimmed,
+              config.segmentMode,
+              config.minTokens,
+              config.maxTokens,
+            ),
+            { mode: "direct", rawText: trimmed },
+          ),
         );
       }
-
-      const newSentences: SentenceState[] = sentenceSegmentGroups.map((segs, i) => {
-        const segments: OrcSegmentState[] = segs.map((segText, si) => ({
-          index: si,
-          text: segText,
-          status: "pending" as const,
-          attempts: 0,
-          history: [],
-        }));
-        const pipeline: PipelineState = { segments };
-        return {
-          index: i,
-          text: segs.join(""),
-          status: "pending" as const,
-          pipeline,
-        };
-      });
-      setSentences(newSentences);
     }
   }, [rawText, inputMode, sentences.length, setSentences, config.segmentMode, config.minTokens, config.maxTokens]);
 
