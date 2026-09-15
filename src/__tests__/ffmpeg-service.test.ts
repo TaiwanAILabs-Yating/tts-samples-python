@@ -39,7 +39,9 @@ const {
   CONCAT_BATCH_SIZE,
   TRIM_SILENCE_THRESHOLD_DB,
   TRIM_SILENCE_KEEP_SEC,
+  MAX_EXECS_PER_INSTANCE,
 } = await import("../services/ffmpeg-service");
+const { FFmpeg: MockFFmpeg } = await import("@ffmpeg/ffmpeg");
 type ConcatProgress = import("../services/ffmpeg-service").ConcatProgress;
 
 describe("padAudioWithSilence", () => {
@@ -459,5 +461,94 @@ describe("FFmpeg loading", () => {
     // Should succeed on retry (not reuse failed instance)
     await expect(preloadFFmpeg()).resolves.not.toThrow();
     expect(mockLoad).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("FFmpeg instance recycling (ffmpeg.wasm dies after ~148 execs)", () => {
+  const WASM_CRASH = "RuntimeError: memory access out of bounds";
+  const two = () => [new ArrayBuffer(8), new ArrayBuffer(8)];
+  const instances = () => vi.mocked(MockFFmpeg).mock.calls.length;
+
+  beforeEach(async () => {
+    await terminateFFmpeg(); // fresh instance + exec counter for every test
+    vi.clearAllMocks();
+    mockExec.mockReset().mockResolvedValue(0);
+  });
+
+  it("keeps a safety margin below the measured crash point", () => {
+    expect(MAX_EXECS_PER_INSTANCE).toBeGreaterThan(0);
+    expect(MAX_EXECS_PER_INSTANCE).toBeLessThanOrEqual(120);
+  });
+
+  it("reuses one instance up to the limit, then replaces it before the next op", async () => {
+    for (let i = 0; i < MAX_EXECS_PER_INSTANCE; i++) {
+      await concatWavsWithCrossfade(two(), 0.05, "tri");
+    }
+    expect(instances()).toBe(1);
+    expect(mockTerminate).not.toHaveBeenCalled();
+
+    await concatWavsWithCrossfade(two(), 0.05, "tri");
+    expect(mockTerminate).toHaveBeenCalledTimes(1);
+    expect(instances()).toBe(2);
+    expect(mockLoad).toHaveBeenCalledTimes(2);
+  });
+
+  it("counts execs from every operation type", async () => {
+    for (let i = 0; i < MAX_EXECS_PER_INSTANCE; i++) {
+      if (i % 2) await padAudioWithSilence(new ArrayBuffer(8), 0.1, 0.1);
+      else await concatWavsWithCrossfade(two(), 0.05, "tri");
+    }
+    await padAudioWithSilence(new ArrayBuffer(8), 0.1, 0.1);
+    expect(instances()).toBe(2);
+  });
+
+  it("reloads and retries the whole operation once after a wasm crash", async () => {
+    mockExec.mockRejectedValueOnce(new Error(WASM_CRASH));
+    await expect(concatWavsWithCrossfade(two(), 0.05, "tri")).resolves.toBeInstanceOf(ArrayBuffer);
+    expect(mockTerminate).toHaveBeenCalledTimes(1);
+    expect(instances()).toBe(2);
+    expect(mockExec).toHaveBeenCalledTimes(2);
+    // Inputs are rewritten into the new instance's filesystem.
+    expect(mockWriteFile).toHaveBeenCalledTimes(4);
+  });
+
+  it("also recovers padding from a crash", async () => {
+    mockExec.mockRejectedValueOnce(new Error(WASM_CRASH));
+    await expect(padAudioWithSilence(new ArrayBuffer(8), 0.1, 0.1)).resolves.toBeInstanceOf(ArrayBuffer);
+    expect(mockExec).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after a single retry", async () => {
+    mockExec.mockRejectedValueOnce(new Error(WASM_CRASH)).mockRejectedValueOnce(new Error(WASM_CRASH));
+    await expect(concatWavsWithCrossfade(two(), 0.05, "tri")).rejects.toThrow("memory access out of bounds");
+    expect(mockExec).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry ordinary errors", async () => {
+    mockExec.mockRejectedValueOnce(new Error("Invalid argument"));
+    await expect(concatWavsWithCrossfade(two(), 0.05, "tri")).rejects.toThrow("Invalid argument");
+    expect(mockExec).toHaveBeenCalledTimes(1);
+    expect(mockTerminate).not.toHaveBeenCalled();
+  });
+
+  it("never swaps the instance out from under an operation that is still running", async () => {
+    for (let i = 0; i < MAX_EXECS_PER_INSTANCE - 1; i++) {
+      await concatWavsWithCrossfade(two(), 0.05, "tri");
+    }
+    let release!: (v: number) => void;
+    mockExec.mockImplementationOnce(() => new Promise<number>((r) => { release = r; }));
+    const running = concatWavsWithCrossfade(two(), 0.05, "tri"); // reaches the limit, still pending
+    await new Promise((r) => setTimeout(r, 0));
+
+    const second = concatWavsWithCrossfade(two(), 0.05, "tri"); // limit reached, but instance busy
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockTerminate).not.toHaveBeenCalled();
+
+    release(0);
+    await Promise.all([running, second]);
+    expect(mockTerminate).not.toHaveBeenCalled();
+
+    await concatWavsWithCrossfade(two(), 0.05, "tri"); // now idle → recycled
+    expect(mockTerminate).toHaveBeenCalledTimes(1);
   });
 });
