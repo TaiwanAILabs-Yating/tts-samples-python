@@ -14,6 +14,73 @@ const EXEC_TIMEOUT_MS = 30_000;
 let ffmpegInstance: FFmpeg | null = null;
 let loadPromise: Promise<void> | null = null;
 
+/**
+ * ffmpeg.wasm corrupts its instance after ~148 exec() calls: the 149th throws
+ * "RuntimeError: memory access out of bounds" and every later call on that
+ * instance fails too. Measured in the browser with @ffmpeg/core 0.12.6 (and the
+ * latest 0.12.10), independent of input size, input count and filter. A fresh
+ * instance loads in ~65 ms, so recycle well before the limit.
+ *
+ * "Regenerate All" alone spends 2 execs per sentence (prompt padding + concat),
+ * so without this a single run of ~74 sentences would start failing.
+ */
+export const MAX_EXECS_PER_INSTANCE = 100;
+
+/** Execs issued on the current instance (reset whenever a new one is created). */
+let execCount = 0;
+/** Operations currently using the instance — never swap it out from under them. */
+let activeOps = 0;
+
+function isWasmCrash(err: unknown): boolean {
+  return /memory access out of bounds|RuntimeError/.test(String(err));
+}
+
+async function execCounted(ffmpeg: FFmpeg, args: string[]): Promise<number> {
+  execCount++;
+  return ffmpeg.exec(args);
+}
+
+/** Terminate `instance` only if it is still the current one (avoids killing a replacement). */
+function discardInstance(instance: FFmpeg): void {
+  if (ffmpegInstance !== instance) return;
+  try {
+    instance.terminate();
+  } catch {
+    // Already dead — nothing to free.
+  }
+  ffmpegInstance = null;
+  loadPromise = null;
+  execCount = 0;
+}
+
+/**
+ * Run an FFmpeg operation (write inputs → exec → read output) on a healthy
+ * instance: recycle it first when it has used up its exec budget and is idle,
+ * and if the wasm instance crashes anyway, reload and retry the whole operation
+ * once (the new instance has an empty filesystem, so inputs are rewritten).
+ */
+async function withFFmpeg<T>(label: string, op: (ffmpeg: FFmpeg) => Promise<T>): Promise<T> {
+  let retried = false;
+  for (;;) {
+    if (ffmpegInstance && execCount >= MAX_EXECS_PER_INSTANCE && activeOps === 0) {
+      logger.ffmpeg.info(`Recycling FFmpeg instance after ${execCount} execs`);
+      discardInstance(ffmpegInstance);
+    }
+    const ffmpeg = await getFFmpeg();
+    activeOps++;
+    try {
+      return await op(ffmpeg);
+    } catch (err) {
+      if (retried || !isWasmCrash(err)) throw err;
+      logger.ffmpeg.warn(`${label}: FFmpeg instance crashed (${String(err)}), reloading and retrying once`);
+      discardInstance(ffmpeg);
+      retried = true;
+    } finally {
+      activeOps--;
+    }
+  }
+}
+
 function withTimeout<T>(
   promise: Promise<T>,
   ms: number,
@@ -46,6 +113,7 @@ async function getFFmpeg(): Promise<FFmpeg> {
   }
 
   ffmpegInstance = new FFmpeg();
+  execCount = 0;
 
   logger.ffmpeg.info("Loading FFmpeg WASM...");
   loadPromise = withTimeout(
@@ -117,35 +185,36 @@ export async function padAudioWithSilence(
   logger.ffmpeg.info(
     `Padding audio: start=${startSilenceSec}s, end=${endSilenceSec}s`
   );
-  const ffmpeg = await getFFmpeg();
   const inputFile = "pad_input.wav";
   const outputFile = "pad_output.wav";
 
-  try {
-    await ffmpeg.writeFile(inputFile, new Uint8Array(audioData.slice(0)));
-
-    // Build filter chain (same as Python version)
-    const filters: string[] = [];
-    if (startSilenceSec > 0) {
-      const ms = Math.round(startSilenceSec * 1000);
-      filters.push(`adelay=${ms}|${ms}`);
-    }
-    if (endSilenceSec > 0) {
-      filters.push(`apad=pad_dur=${endSilenceSec}`);
-    }
-
-    await withTimeout(
-      ffmpeg.exec(["-i", inputFile, "-af", filters.join(","), outputFile]),
-      EXEC_TIMEOUT_MS,
-      "FFmpeg pad"
-    );
-
-    const data = await ffmpeg.readFile(outputFile);
-    logger.ffmpeg.info("Padding complete");
-    return new Uint8Array(data as Uint8Array).buffer as ArrayBuffer;
-  } finally {
-    await cleanupFiles(ffmpeg, [inputFile, outputFile]);
+  // Build filter chain (same as Python version)
+  const filters: string[] = [];
+  if (startSilenceSec > 0) {
+    const ms = Math.round(startSilenceSec * 1000);
+    filters.push(`adelay=${ms}|${ms}`);
   }
+  if (endSilenceSec > 0) {
+    filters.push(`apad=pad_dur=${endSilenceSec}`);
+  }
+
+  return withFFmpeg("FFmpeg pad", async (ffmpeg) => {
+    try {
+      await ffmpeg.writeFile(inputFile, new Uint8Array(audioData.slice(0)));
+
+      await withTimeout(
+        execCounted(ffmpeg, ["-i", inputFile, "-af", filters.join(","), outputFile]),
+        EXEC_TIMEOUT_MS,
+        "FFmpeg pad"
+      );
+
+      const data = await ffmpeg.readFile(outputFile);
+      logger.ffmpeg.info("Padding complete");
+      return new Uint8Array(data as Uint8Array).buffer as ArrayBuffer;
+    } finally {
+      await cleanupFiles(ffmpeg, [inputFile, outputFile]);
+    }
+  });
 }
 
 import { MAX_SEGMENTS_PER_SENTENCE } from "../utils/preprocessing";
@@ -385,58 +454,59 @@ async function concatBatch(
     return audioBuffers[0];
   }
 
-  const ffmpeg = await getFFmpeg();
-  const inputFiles: string[] = [];
-  const outputFile = `${label}_output.wav`;
+  return withFFmpeg(`FFmpeg concat ${label}`, async (ffmpeg) => {
+    const inputFiles: string[] = [];
+    const outputFile = `${label}_output.wav`;
 
-  try {
-    // Write all input files to virtual FS
-    for (let i = 0; i < audioBuffers.length; i++) {
-      const fileName = `${label}_input_${i}.wav`;
-      inputFiles.push(fileName);
-      await ffmpeg.writeFile(
-        fileName,
-        new Uint8Array(audioBuffers[i].slice(0)),
-      );
-    }
-
-    // Build input arguments
-    const inputArgs: string[] = [];
-    for (const file of inputFiles) {
-      inputArgs.push("-i", file);
-    }
-
-    // Build filter_complex
-    const filterComplex = buildConcatFilterComplex(audioBuffers.length, {
-      crossfadeDuration,
-      fadeCurve,
-      trim,
-    });
-
-    const progressHandler = ({ progress }: { progress: number; time: number }) => {
-      if (Number.isFinite(progress)) {
-        onProgress?.(Math.max(0, Math.min(1, progress)));
-      }
-    };
-
-    ffmpeg.on?.("progress", progressHandler);
     try {
-      await withTimeout(
-        ffmpeg.exec([...inputArgs, "-filter_complex", filterComplex, outputFile]),
-        computeConcatTimeout(audioBuffers.length),
-        `FFmpeg concat ${label}`,
-      );
-      onProgress?.(1);
-    } finally {
-      ffmpeg.off?.("progress", progressHandler);
-    }
+      // Write all input files to virtual FS
+      for (let i = 0; i < audioBuffers.length; i++) {
+        const fileName = `${label}_input_${i}.wav`;
+        inputFiles.push(fileName);
+        await ffmpeg.writeFile(
+          fileName,
+          new Uint8Array(audioBuffers[i].slice(0)),
+        );
+      }
 
-    const data = await ffmpeg.readFile(outputFile);
-    logger.ffmpeg.info(`Concat ${label} complete`);
-    return new Uint8Array(data as Uint8Array).buffer as ArrayBuffer;
-  } finally {
-    await cleanupFiles(ffmpeg, [...inputFiles, outputFile]);
-  }
+      // Build input arguments
+      const inputArgs: string[] = [];
+      for (const file of inputFiles) {
+        inputArgs.push("-i", file);
+      }
+
+      // Build filter_complex
+      const filterComplex = buildConcatFilterComplex(audioBuffers.length, {
+        crossfadeDuration,
+        fadeCurve,
+        trim,
+      });
+
+      const progressHandler = ({ progress }: { progress: number; time: number }) => {
+        if (Number.isFinite(progress)) {
+          onProgress?.(Math.max(0, Math.min(1, progress)));
+        }
+      };
+
+      ffmpeg.on?.("progress", progressHandler);
+      try {
+        await withTimeout(
+          execCounted(ffmpeg, [...inputArgs, "-filter_complex", filterComplex, outputFile]),
+          computeConcatTimeout(audioBuffers.length),
+          `FFmpeg concat ${label}`,
+        );
+        onProgress?.(1);
+      } finally {
+        ffmpeg.off?.("progress", progressHandler);
+      }
+
+      const data = await ffmpeg.readFile(outputFile);
+      logger.ffmpeg.info(`Concat ${label} complete`);
+      return new Uint8Array(data as Uint8Array).buffer as ArrayBuffer;
+    } finally {
+      await cleanupFiles(ffmpeg, [...inputFiles, outputFile]);
+    }
+  });
 }
 
 /**
@@ -448,4 +518,5 @@ export async function terminateFFmpeg(): Promise<void> {
     ffmpegInstance = null;
     loadPromise = null;
   }
+  execCount = 0;
 }
