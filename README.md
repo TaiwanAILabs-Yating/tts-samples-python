@@ -8,6 +8,11 @@ AILabs 基於 zero-shot 語音合成的文字轉語音工具。提供 **Web UI �
 
 瀏覽器端的 TTS 語音合成工具，提供完整的語音生成、審核、匯出流程。
 
+### 近期更新
+
+- **TTS 尾端雜音清除**：部分 TTS 輸出會在結尾最後約 12ms 出現削波雜音（「啪」一聲）。現在每個 segment 生成後會自動偵測並切除，**segment 與 sentence 的試聽、下載、合併皆不再有結尾爆音**，句子中間的接點也一併改善。詳見下方〈音訊處理〉與〈Web UI 注意事項〉
+- **長時間使用的合併穩定性**：修正同一頁面連續處理大量音檔（例如一次生成約 74 句以上，或多次重新生成、下載）後，合併開始失敗的問題
+
 ### 功能總覽
 
 #### 語音生成
@@ -59,6 +64,11 @@ AILabs 基於 zero-shot 語音合成的文字轉語音工具。提供 **Web UI �
 #### 音訊處理
 - 交叉淡化串接（FFmpeg.wasm，瀏覽器端），消除接合處的爆音/雜訊
 - **前後靜音濾除（silenceremove）**：合併時先修剪各 segment 頭尾的靜音再交叉淡化，避免 TTS 產生的長短不一靜音造成不自然停頓。預設開啟，可於進階設定關閉
+- **TTS 尾端雜音清除**：每個 segment 從 TTS 取得後立即自動清理（純瀏覽器端運算，每段不到 1ms），不需設定：
+  - 切除結尾突然暴衝的短暫雜音（含主雜音前的小喀聲），最後淡出 10ms 讓播放平順停止
+  - 只處理最後幾十毫秒內「突然暴衝」的雜音；語音本身講到結尾（非雜音）不會被切除
+  - 試聽、下載、合併、時間軸都使用清理後的音檔，結果一致
+- **合併穩定性**：瀏覽器端 FFmpeg 在同一個實例執行約 148 次後會失效，現在會自動定期重新載入（使用者無感），若仍發生錯誤會自動重試一次
 - 階層式分批 concat：大量音檔會每 50 段先合併成中段，再合成最終音檔，降低 timeout / OOM 風險
 - Concat 進度回報：下載時會顯示目前批次與 FFmpeg 執行進度
 - 支援多種淡化曲線：tri / qsin / hsin / log / exp
@@ -159,8 +169,8 @@ npm run dev
    - 大量 segments 的 sentence 會隱藏波形播放器，以避免 canvas 重繪造成瀏覽器卡頓
 
 3. **Segment 操作**
-   - 即時試聽：點擊 play 按鈕試聽單一 segment（生成完成即可聽）
-   - 獨立下載：點擊 download 按鈕下載單一 segment 的 WAV
+   - 即時試聽：點擊 play 按鈕試聽單一 segment（生成完成即可聽，已清除尾端雜音）
+   - 獨立下載：點擊 download 按鈕下載單一 segment 的 WAV（已清除尾端雜音）
    - 文字編輯：點擊 segment 文字進入編輯模式
    - 單獨重生：修改後可單獨重新生成該 segment
    - Tailo 斷詞（台語模式）：點擊 Tailo 按鈕展開 Word Chips 面板，點擊 chip 切換中文/拼音，右鍵選擇候選發音
@@ -253,6 +263,7 @@ npx tsx scripts/preprocess-lexicon.ts /path/to/lexicon.txt
      - 每句的 status（approved / rejected）
      - 每句的 Notes 內容
      - Segment 數量、每段文字，以及每段在合併音檔中的起迄時間（已反映靜音濾除與交叉淡化，區間不重疊）
+     - 每段被清除的尾端雜音長度 `tailCutMs`（毫秒；未切除時不列出）
 
 3. **回報問題**
    - **請將整包 ZIP 傳回給我們**（包含音檔 + metadata.json）
@@ -274,6 +285,11 @@ npx tsx scripts/preprocess-lexicon.ts /path/to/lexicon.txt
   - 重生期間，其他 segment 的 Regen 按鈕及 Regenerate Sentence 按鈕將暫時禁用
   - 整批生成進行中，所有重新生成與審核操作將被鎖定
   - 完成後自動恢復所有按鈕
+
+- **尾端雜音清除**：
+  - 自動套用，無開關；判定規則以中文、台語輸出調校，**英文、日文、韓文尚未完整驗證**，若發現結尾字音被切掉請回報（附上 ZIP，`metadata.json` 會記錄每段切除的毫秒數）
+  - 若語音本身在結尾被模型截斷，只能讓收尾平順，無法補回被截掉的聲音，請重新生成該 segment
+  - 此功能上線前已 Approve 並存於瀏覽器的整句音檔不會回溯清理，重新生成即可
 
 - **長文本限制**：
   - Direct Input 最多 50,000 字
@@ -319,9 +335,16 @@ src/
 │
 ├── utils/
 │   ├── preprocessing.ts     # 文字分段 & token 計算
+│   ├── sentence-builder.ts  # 建立 sentence 狀態（保留使用者原始標點）
+│   ├── sentence-text.ts     # segment ↔ 原文對應（標點還原、區段取代）
+│   ├── batch-replace.ts     # 批次取代字詞
+│   ├── segment-tail.ts      # TTS 尾端雜音清除
+│   ├── segment-timeline.ts  # 合併音檔的 segment 時間軸
+│   ├── audio.ts             # WAV 解析、修剪後長度估算
 │   ├── settings-io.ts       # 設定匯出/匯入（JSON + base64）
 │   ├── ipa-to-tailo.ts      # IPA 音標 → 台羅拼音轉換
-│   └── audio.ts             # WAV 解析
+│   ├── logger.ts            # 分類 logger
+│   └── url.ts               # 從 API URL 取出 base URL
 │
 └── config/
     └── index.ts             # 環境變數設定
