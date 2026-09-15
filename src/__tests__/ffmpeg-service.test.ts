@@ -39,6 +39,7 @@ const {
   CONCAT_BATCH_SIZE,
   TRIM_SILENCE_THRESHOLD_DB,
   TRIM_SILENCE_KEEP_SEC,
+  TAIL_FADE_SEC,
 } = await import("../services/ffmpeg-service");
 type ConcatProgress = import("../services/ffmpeg-service").ConcatProgress;
 
@@ -320,6 +321,126 @@ describe("buildConcatFilterComplex", () => {
   it("exports default trim constants", () => {
     expect(TRIM_SILENCE_THRESHOLD_DB).toBe(-50);
     expect(TRIM_SILENCE_KEEP_SEC).toBe(0.1);
+  });
+});
+
+describe("buildConcatFilterComplex tail fade", () => {
+  const base = { crossfadeDuration: 0.05, fadeCurve: "hsin" as const };
+  const trim = { thresholdDb: -50, keepSec: 0.1 };
+  const head =
+    "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.1:detection=rms";
+  const fade = "afade=t=in:d=0.01";
+
+  it("fades out only the last input, inside its already-reversed trim chain", () => {
+    const out = buildConcatFilterComplex(3, { ...base, trim, tailFade: 0.01 });
+    // Fading *in* while reversed == fading *out* once reversed back.
+    expect(out).toContain(`[2]${head},areverse,${head},${fade},areverse[s2]`);
+    expect(out).toContain(`[0]${head},areverse,${head},areverse[s0]`);
+    expect(out).toContain(`[1]${head},areverse,${head},areverse[s1]`);
+    expect(out.match(/afade/g)).toHaveLength(1);
+    // No extra areverse beyond the per-segment trim chains.
+    expect(out.match(/areverse/g)).toHaveLength(6);
+  });
+
+  it("adds a reverse-fade-reverse chain to the last input when not trimming", () => {
+    const out = buildConcatFilterComplex(3, { ...base, tailFade: 0.01 });
+    expect(out).toBe(
+      `[2]areverse,${fade},areverse[s2];` +
+        "[0][1]acrossfade=d=0.05:c1=hsin:c2=hsin[a0];" +
+        "[a0][s2]acrossfade=d=0.05:c1=hsin:c2=hsin",
+    );
+  });
+
+  it("never fades the head of the first input", () => {
+    for (const opts of [{ ...base, tailFade: 0.01 }, { ...base, trim, tailFade: 0.01 }]) {
+      const out = buildConcatFilterComplex(3, opts);
+      expect(out).not.toContain("t=out");
+      expect(out.split(";").find((f) => f.startsWith("[0]"))?.includes("afade") ?? false).toBe(
+        false,
+      );
+    }
+  });
+
+  it("builds a lone-input chain with an unlabeled output", () => {
+    expect(buildConcatFilterComplex(1, { ...base, tailFade: 0.01 })).toBe(
+      `[0]areverse,${fade},areverse`,
+    );
+    expect(buildConcatFilterComplex(1, { ...base, trim, tailFade: 0.01 })).toBe(
+      `[0]${head},areverse,${head},${fade},areverse`,
+    );
+  });
+
+  it("works for two inputs", () => {
+    expect(buildConcatFilterComplex(2, { ...base, tailFade: 0.01 })).toBe(
+      `[1]areverse,${fade},areverse[s1];[0][s1]acrossfade=d=0.05:c1=hsin:c2=hsin`,
+    );
+  });
+
+  it("leaves the filter unchanged when tailFade is not set", () => {
+    expect(buildConcatFilterComplex(3, base)).toBe(
+      "[0][1]acrossfade=d=0.05:c1=hsin:c2=hsin[a0];[a0][2]acrossfade=d=0.05:c1=hsin:c2=hsin",
+    );
+  });
+
+  it("exports a 10ms tail fade constant", () => {
+    expect(TAIL_FADE_SEC).toBe(0.01);
+  });
+});
+
+describe("concatWavsWithCrossfade with fadeOutTail", () => {
+  beforeEach(() => {
+    mockExec.mockClear();
+  });
+
+  const buffers = (n: number) => Array.from({ length: n }, () => new ArrayBuffer(8));
+  const filterOf = (call: number) => {
+    const args = mockExec.mock.calls[call][0] as string[];
+    return args[args.indexOf("-filter_complex") + 1];
+  };
+
+  it("runs FFmpeg for a lone segment so its tail gets faded", async () => {
+    await concatWavsWithCrossfade(buffers(1), 0.05, "hsin", undefined, { fadeOutTail: true });
+    expect(mockExec).toHaveBeenCalledOnce();
+    expect(filterOf(0)).toBe(`[0]areverse,afade=t=in:d=${TAIL_FADE_SEC},areverse`);
+  });
+
+  it("still returns a lone segment untouched with no options", async () => {
+    const input = buffers(1);
+    expect(await concatWavsWithCrossfade(input, 0.05, "hsin")).toBe(input[0]);
+    expect(mockExec).not.toHaveBeenCalled();
+  });
+
+  it("fades only the final batch's last input in hierarchical concat", async () => {
+    await concatWavsWithCrossfade(buffers(CONCAT_BATCH_SIZE * 2), 0.05, "hsin", undefined, {
+      fadeOutTail: true,
+    });
+    // Pass 1: two full batches + Pass 2
+    expect(mockExec).toHaveBeenCalledTimes(3);
+    expect(filterOf(0)).not.toContain("afade");
+    expect(filterOf(1).match(/afade/g)).toHaveLength(1);
+    expect(filterOf(1)).toContain(`[${CONCAT_BATCH_SIZE - 1}]areverse,afade`);
+    expect(filterOf(2)).not.toContain("afade");
+  });
+
+  it("fades a leftover single-file final batch", async () => {
+    await concatWavsWithCrossfade(buffers(CONCAT_BATCH_SIZE + 1), 0.05, "hsin", undefined, {
+      fadeOutTail: true,
+    });
+    // Pass 1: full batch + leftover lone file (now needs a pass) + Pass 2
+    expect(mockExec).toHaveBeenCalledTimes(3);
+    expect(filterOf(0)).not.toContain("afade");
+    expect(filterOf(1)).toBe(`[0]areverse,afade=t=in:d=${TAIL_FADE_SEC},areverse`);
+    expect(filterOf(2)).not.toContain("afade");
+  });
+
+  it("combines with trimSilence in a single chain per input", async () => {
+    await concatWavsWithCrossfade(buffers(2), 0.05, "hsin", undefined, {
+      trimSilence: true,
+      fadeOutTail: true,
+    });
+    const f = filterOf(0);
+    expect(f.match(/afade/g)).toHaveLength(1);
+    expect(f.match(/areverse/g)).toHaveLength(4);
   });
 });
 

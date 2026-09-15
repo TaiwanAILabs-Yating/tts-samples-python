@@ -6,6 +6,7 @@ import {
   concatWavsWithCrossfade,
   TRIM_SILENCE_THRESHOLD_DB,
   TRIM_SILENCE_KEEP_SEC,
+  TAIL_FADE_SEC,
   type ConcatProgress,
 } from "../../services/ffmpeg-service.ts";
 import { computeMergedTimeline } from "../../utils/segment-timeline.ts";
@@ -206,7 +207,7 @@ export function SentenceSidebar({
             config.crossfadeDuration ?? 0.05,
             config.fadeCurve ?? "tri",
             setDownloadConcatProgress,
-            { trimSilence },
+            { trimSilence, fadeOutTail: true },
           );
         }
 
@@ -220,8 +221,8 @@ export function SentenceSidebar({
       // Concat all approved sentences into one WAV only when explicitly checked.
       if (concatAll && sentenceAudioForFinalConcat.length > 0) {
         setDownloadConcatLabel("合併所有句子");
-        // No trimming here by design: inputs are already-trimmed sentence
-        // audio, and the pauses between sentences must be preserved.
+        // No trimming / tail fade here by design: inputs are sentence audio that
+        // was already trimmed and faded, and pauses between sentences must stay.
         const concatenated = await concatWavsWithCrossfade(
           sentenceAudioForFinalConcat,
           config.crossfadeDuration ?? 0.05,
@@ -261,6 +262,7 @@ export function SentenceSidebar({
             trimSilence: config.trimSilence ?? true,
             trimSilenceThresholdDb: TRIM_SILENCE_THRESHOLD_DB,
             trimSilenceKeepSec: TRIM_SILENCE_KEEP_SEC,
+            tailFadeSec: TAIL_FADE_SEC,
           },
         },
         sentences: sentences.map((s) => {

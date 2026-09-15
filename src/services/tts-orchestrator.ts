@@ -184,7 +184,8 @@ async function recombineOutputs(
       crossfadeDuration,
       fadeCurve,
       (info) => callbacks?.onConcatProgress?.(info),
-      { trimSilence },
+      // Per-sentence output: fade the final tail so the sentence never ends on a pop.
+      { trimSilence, fadeOutTail: true },
     );
     callbacks?.onConcatComplete?.(concatenatedAudio);
     logger.orchestrator.info("Concat complete");
