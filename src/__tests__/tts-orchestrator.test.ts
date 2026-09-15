@@ -476,3 +476,78 @@ describe("regenerateSentence", () => {
     ).rejects.toThrow("No prompt voice asset key");
   });
 });
+
+describe("tail artifact cleaning at audio ingestion", () => {
+  // 1 kHz tone (-20 dB), 100 ms silence, then a 12 ms full-scale burst — the
+  // artifact shape measured on real TTS output.
+  function burstWav(): ArrayBuffer {
+    const sr = 24000;
+    const parts: [number, number][] = [[200, 0.1], [100, 0], [12, 1]];
+    const frames = parts.reduce((a, [ms]) => a + (ms * sr) / 1000, 0);
+    const buf = new ArrayBuffer(44 + frames * 2);
+    const v = new DataView(buf);
+    const w = (o: number, s: string) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    w(0, "RIFF"); v.setUint32(4, 36 + frames * 2, true); w(8, "WAVE"); w(12, "fmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    w(36, "data"); v.setUint32(40, frames * 2, true);
+    let f = 0;
+    for (const [ms, amp] of parts) {
+      for (let i = 0; i < (ms * sr) / 1000; i++, f++) {
+        v.setInt16(44 + f * 2, Math.round(Math.min(32767, amp * 32767) * Math.sin((2 * Math.PI * 1000 * f) / sr)), true);
+      }
+    }
+    return buf;
+  }
+  const CUT_BYTES = 12 * 24 * 2;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUploadPromptVoice.mockResolvedValue("asset-key-abc");
+    mockGetWavDuration.mockReturnValue(3.5);
+    mockEstimateTrimmed.mockReturnValue(3.0);
+    mockConcatWavs.mockResolvedValue(fakeConcatAudio);
+  });
+
+  it("generateAll stores cleaned audio and records how much was cut", async () => {
+    const raw = burstWav();
+    mockSendZeroShot.mockResolvedValue(raw);
+    const result = await generateAll(makeGenerateAllConfig({ segments: [{ text: "甲" }, { text: "乙" }] }));
+    for (const seg of result.segments) {
+      expect(seg.audio!.byteLength).toBe(raw.byteLength - CUT_BYTES);
+      expect(seg.tailCutMs).toBe(12);
+    }
+  });
+
+  it("measures durations on the cleaned audio, not the raw response", async () => {
+    const raw = burstWav();
+    mockSendZeroShot.mockResolvedValue(raw);
+    await generateAll(makeGenerateAllConfig({ segments: [{ text: "甲" }] }));
+    expect(mockGetWavDuration.mock.calls[0][0].byteLength).toBe(raw.byteLength - CUT_BYTES);
+    expect(mockEstimateTrimmed.mock.calls[0][0].byteLength).toBe(raw.byteLength - CUT_BYTES);
+  });
+
+  it("concatenates the cleaned audio", async () => {
+    const raw = burstWav();
+    mockSendZeroShot.mockResolvedValue(raw);
+    await generateAll(makeGenerateAllConfig({ segments: [{ text: "甲" }, { text: "乙" }] }));
+    const inputs = mockConcatWavs.mock.calls[0][0] as ArrayBuffer[];
+    expect(inputs.map((b) => b.byteLength)).toEqual([raw.byteLength - CUT_BYTES, raw.byteLength - CUT_BYTES]);
+  });
+
+  it("regenerateSegment and regenerateSentence clean too", async () => {
+    const raw = burstWav();
+    mockSendZeroShot.mockResolvedValue(raw);
+    const one = await regenerateSegment(makePipelineState(2), 0, makeRegenerateConfig());
+    expect(one.segments[0].tailCutMs).toBe(12);
+    const all = await regenerateSentence(makePipelineState(2), makeRegenerateConfig());
+    expect(all.segments.every((s) => s.tailCutMs === 12)).toBe(true);
+  });
+
+  it("leaves audio that needs no cleaning without a tailCutMs", async () => {
+    mockSendZeroShot.mockResolvedValue(fakeAudio); // not a parseable WAV → returned untouched
+    const result = await generateAll(makeGenerateAllConfig({ segments: [{ text: "甲" }] }));
+    expect(result.segments[0].audio).toBe(fakeAudio);
+    expect(result.segments[0].tailCutMs).toBeUndefined();
+  });
+});

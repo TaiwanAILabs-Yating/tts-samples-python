@@ -293,6 +293,7 @@ export function SentenceSidebar({
                 ttsText: ttsText !== seg.text ? ttsText : undefined,
                 start: round3(span.start),
                 end: round3(span.end),
+                tailCutMs: seg.tailCutMs,
                 wordSegmentation: seg.wordSegmentation?.map((ws) => ({
                   word: ws.word,
                   tailo: ws.tailo,
