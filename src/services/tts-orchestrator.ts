@@ -9,6 +9,7 @@ import {
   TRIM_SILENCE_KEEP_SEC,
 } from "./ffmpeg-service";
 import { getWavDuration, estimateTrimmedWavDuration } from "../utils/audio";
+import { cleanSegmentTail } from "../utils/segment-tail";
 import { generateWithRetry, generateBatch } from "./batch-generator";
 import { logger } from "../utils/logger";
 
@@ -43,6 +44,11 @@ export interface SegmentState {
    * utils/segment-timeline). Display-only; never sent to TTS.
    */
   trimmedDuration?: number;
+  /**
+   * Milliseconds of TTS tail artifact removed when the audio arrived
+   * (utils/segment-tail). Undefined when nothing was cut. Diagnostic only.
+   */
+  tailCutMs?: number;
   error?: string;
   attempts: number;
   history: HistoryEntry[];
@@ -120,16 +126,31 @@ function buildTtsText(segment: SegmentState): string {
 }
 
 /**
- * Record both duration metrics for freshly generated segment audio.
+ * Store freshly generated segment audio — the single entry point for TTS audio.
  *
- * `duration` is the standalone segment's length (what the segment card shows
- * and what an individual segment download contains). `trimmedDuration` is a
- * pure measurement of what silenceremove would leave — recorded here rather
- * than at concat time so it is available no matter which concat path runs
- * (or whether concat runs at all, e.g. skipConcat sentences). Whether a
- * timeline uses it is decided at read time by the current trimSilence setting.
+ * The TTS output is cleaned first (utils/segment-tail removes the burst the
+ * model sometimes appends to the very end), so every consumer — segment
+ * preview, segment download, concat, history — gets the same pop-free audio.
+ *
+ * Both duration metrics are measured on the cleaned audio: the tail artifact
+ * counts as "sound" for silenceremove, so measuring raw audio could be off by
+ * a quarter second or more. `duration` is the standalone segment's length;
+ * `trimmedDuration` is what silenceremove would leave. It is recorded here
+ * rather than at concat time so it is available no matter which concat path
+ * runs; whether a timeline uses it is decided at read time by trimSilence.
  */
-function applyAudioMetrics(segment: SegmentState, audio: ArrayBuffer): void {
+function acceptSegmentAudio(segment: SegmentState, raw: ArrayBuffer): void {
+  const cleaned = cleanSegmentTail(raw);
+  if (cleaned.skipped) {
+    logger.orchestrator.warn(`Segment ${segment.index}: tail cleaning skipped (${cleaned.skipped})`);
+  } else if (cleaned.cutMs > 0) {
+    logger.orchestrator.info(
+      `Segment ${segment.index}: removed ${cleaned.cutMs}ms tail artifact (rule ${cleaned.rule})`,
+    );
+  }
+  const audio = cleaned.buffer;
+  segment.audio = audio;
+  segment.tailCutMs = cleaned.cutMs > 0 ? cleaned.cutMs : undefined;
   segment.duration = getWavDuration(audio);
   segment.trimmedDuration = estimateTrimmedWavDuration(
     audio,
@@ -275,8 +296,7 @@ export async function generateAll(
     ).then((result) => {
       if (result.success && result.data) {
         segment.status = "success";
-        segment.audio = result.data;
-        applyAudioMetrics(segment, result.data);
+        acceptSegmentAudio(segment, result.data);
         segment.attempts = result.attempts;
       } else {
         segment.status = "error";
@@ -383,8 +403,7 @@ export async function regenerateSegment(
 
   if (result.success && result.data) {
     segment.status = "success";
-    segment.audio = result.data;
-    applyAudioMetrics(segment, result.data);
+    acceptSegmentAudio(segment, result.data);
     segment.attempts = result.attempts;
   } else {
     segment.status = "error";
@@ -461,8 +480,7 @@ export async function regenerateSentence(
     ).then((result) => {
       if (result.success && result.data) {
         segment.status = "success";
-        segment.audio = result.data;
-        applyAudioMetrics(segment, result.data);
+        acceptSegmentAudio(segment, result.data);
         segment.attempts = result.attempts;
       } else {
         segment.status = "error";
